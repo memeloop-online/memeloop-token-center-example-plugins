@@ -33,14 +33,14 @@ loadable package until the release pipeline has produced `plugin.wasm`. Do not
 mount this source directory as a runtime inventory or loosen package validation
 to make an unbuilt source tree appear installed.
 
-The manual [publish workflow](../../.github/workflows/publish-first-party-plugin.yml)
+The manual [publish workflow](https://github.com/memeloop-online/memeloop-token-center/blob/master/.github/workflows/publish-first-party-plugin.yml)
 tests default and configured behavior, builds the component, runs it in the actual
 host, publishes OCI layers with the installer's media types, signs using GitHub
 OIDC, verifies the exact certificate identity and installs the signed digest with
 the actual installer. Its `plugin-release.json` exists only after all these gates
 succeed. Source being merged does **not** mean a signed release exists.
 
-See [first-party release and installation](../../docs/first-party-plugin-release.md)
+See [first-party release and installation](https://memeloop-online.github.io/memeloop-token-center/en/plugins/installation)
 for release status, trust policy and the administrator workflow. This repository
 does not enable runtime inventory, modify production trust, publish an inventory,
 or change any tenant configuration as part of adding this asset.
