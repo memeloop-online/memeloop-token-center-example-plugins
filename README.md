@@ -2,6 +2,7 @@
 
 Example plugins for [MemeLoop Token Center](https://github.com/memeloop-online/memeloop-token-center).
 
+- [Text Model Playground](playground): ephemeral operator chat and the pinned official MemeLoop agent loop; CI produces a self-contained review package.
 - [Rust guest sources](plugin-sources): model-guard, preferred-account, soonest-reset.
 - [Provider manifests](plugins), including google-antigravity.
 - [Policy rewrite component](examples/plugins/policy-rewrite), with reviewed WAT and Wasm.
