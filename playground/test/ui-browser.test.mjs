@@ -5,7 +5,7 @@ import {build} from 'esbuild';
 import {chromium} from 'playwright';
 import {createServer} from 'node:http';
 import {fileURLToPath} from 'node:url';
-import {mkdirSync} from 'node:fs';
+import {mkdirSync,writeFileSync} from 'node:fs';
 
 const root=fileURLToPath(new URL('../../',import.meta.url));
 const fixture=`
@@ -15,7 +15,7 @@ import * as Fluent from '@fluentui/react-components';
 import {activateOperatorUi} from './dist/playground/mtc-text-playground/ui/playground.mjs';
 const pkg=activateOperatorUi({React,Fluent,defineOperatorUiPackage:x=>x});
 const route={id:'route-1',public_model:'text-model',upstream_model:'upstream',enabled:true,protocol:'openai',created_at:1};
-window.requests=[];window.navigations=[];let iteration=0;
+window.requests=[];window.responses=[];window.navigations=[];let iteration=0;
 const mode=new URLSearchParams(location.search).get('mode');
 const call=(id,name,args)=>({id,type:'function',function:{name,arguments:JSON.stringify(args)}});
 const api={navigate:(...args)=>window.navigations.push(args),discoverApi:async()=>({paths:{'/internal/v1/widgets':{post:{}}}}),requestApi:async req=>{
@@ -27,7 +27,7 @@ const api={navigate:(...args)=>window.navigations.push(args),discoverApi:async()
   if(mode==='pending')return new Promise(()=>{});
   iteration++;
   const message=mode==='mutation'&&iteration===1?{role:'assistant',content:'Review change',tool_calls:[call('docs','discover_api',{}),call('write','request_api',{method:'POST',path:'/internal/v1/widgets',body:{name:'example'}})]}:{role:'assistant',content:'Hello from model'};
-  return {choices:[{message}]};
+  const response={choices:[{message}]};window.responses.push(response);return response;
  }
  throw new Error('Unexpected path '+req.path);
 }};
@@ -40,16 +40,22 @@ test('actual plugin mounts, sends, reviews, stops and navigates in Chromium',{ti
  const js=output.outputFiles[0].text;
  const server=createServer((req,res)=>{res.setHeader('Content-Type',req.url==='/app.js'?'text/javascript':'text/html');res.end(req.url==='/app.js'?js:'<!doctype html><html><body><div id="root"></div><script type="module" src="/app.js"></script></body></html>');});
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
- let browser;
+ let browser,page;
+ const errors=[];
+ const artifactDir=root+'dist/playground-browser';
+ mkdirSync(artifactDir,{recursive:true});
  try{
   browser=await chromium.launch({headless:true});
-  const page=await browser.newPage({viewport:{width:390,height:844}});
-  const errors=[];page.on('pageerror',error=>errors.push(error.message));
+  page=await browser.newPage({viewport:{width:390,height:844}});
+  page.on('pageerror',error=>errors.push(error.message));
   const url='http://127.0.0.1:'+server.address().port;
   const choose=async()=>{await page.locator('#mtp-model').selectOption('route-1');await page.locator('#mtp-key').selectOption('key-1');};
   const send=async()=>{await page.getByRole('textbox',{name:'Type a message',exact:true}).fill('Inspect workspace');await page.getByRole('button',{name:'Send',exact:true}).click();};
   await page.goto(url);await choose();await send();
-  await page.getByRole('log').getByText('Hello from model',{exact:true}).waitFor();
+  await page.getByRole('log').filter({hasText:'Hello from model'}).waitFor();
+  await page.getByText('Done · Iterations:',{exact:false}).waitFor();
+  assert.equal(await page.evaluate(()=>window.responses.at(-1)?.choices[0]?.message.content),'Hello from model');
+  assert.equal(await page.getByText('An error occurred:',{exact:false}).count(),0);
   mkdirSync(root+'dist/playground-browser',{recursive:true});
   await page.screenshot({path:root+'dist/playground-browser/mobile-chat.png',fullPage:true});
   assert.equal(await page.evaluate(()=>window.requests.find(r=>r.body?.key_id)?.body.key_id),'key-1');
@@ -65,7 +71,10 @@ test('actual plugin mounts, sends, reviews, stops and navigates in Chromium',{ti
    await page.keyboard.press('Tab');
    assert.equal(await dialog.evaluate(el=>el.contains(document.activeElement)),true);
    await dialog.getByRole('button',{name:approval,exact:true}).click();
-   await page.getByRole('log').getByText('Hello from model',{exact:true}).waitFor();
+   await page.getByRole('log').filter({hasText:'Hello from model'}).waitFor();
+   await page.getByText('Done · Iterations:',{exact:false}).waitFor();
+   assert.equal(await page.evaluate(()=>window.responses.at(-1)?.choices[0]?.message.content),'Hello from model');
+   assert.equal(await page.getByText('An error occurred:',{exact:false}).count(),0);
    assert.equal(await page.evaluate(()=>window.requests.filter(r=>r.path==='/internal/v1/widgets').length),approval==='Approve'?1:0);
   }
   await page.goto(url+'?mode=pending');await choose();await send();
@@ -73,7 +82,24 @@ test('actual plugin mounts, sends, reviews, stops and navigates in Chromium',{ti
   await page.getByRole('button',{name:'Stop',exact:true}).click();
   await page.getByText('Stopped. The upstream request may still continue and incur cost.',{exact:true}).waitFor();
   await page.evaluate(()=>window.unmount());
-  await page.goto(url+'?mode=403');await page.getByText('Missing read permission (keys:read required). Contact your administrator.',{exact:true}).waitFor();
+  await page.goto(url+'?mode=403');await page.getByText('Missing read permission (keys:read required). Contact your administrator.',{exact:false}).waitFor();
   assert.deepEqual(errors,[]);
+ }catch(error){
+  if(page){
+   await page.screenshot({path:artifactDir+'/failure.png',fullPage:true}).catch(()=>{});
+   const diagnostic=await page.evaluate(()=>({
+    // The page only runs the deterministic mock above. Record summaries, never raw bodies.
+    mode:new URLSearchParams(location.search).get('mode'),
+    requests:(window.requests||[]).map(r=>({path:r.path,method:r.method||'GET',model:r.body?.request?.model,keyId:r.body?.key_id})),
+    assistantResponses:(window.responses||[]).map(r=>r.choices?.[0]?.message?.content),
+    transcript:document.querySelector('[role=log]')?.innerText,
+    alerts:[...document.querySelectorAll('[role=alert]')].map(el=>el.innerText),
+    text:document.body.innerText.slice(0,8000),
+    selectedModel:document.querySelector('#mtp-model')?.value,
+    selectedKey:document.querySelector('#mtp-key')?.value
+   })).catch(()=>({pageUnavailable:true}));
+   writeFileSync(artifactDir+'/failure.json',JSON.stringify({...diagnostic,pageErrors:errors,failure:String(error)},null,2));
+  }
+  throw error;
  }finally{if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));}
 });
