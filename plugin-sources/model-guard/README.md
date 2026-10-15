@@ -40,7 +40,7 @@ OIDC, verifies the exact certificate identity and installs the signed digest wit
 the actual installer. Its `plugin-release.json` exists only after all these gates
 succeed. Source being merged does **not** mean a signed release exists.
 
-See [first-party release and installation](https://memeloop-online.github.io/memeloop-token-center/en/plugins/installation)
+See [first-party release and installation](https://memeloop-online.github.io/memeloop-token-center/en/plugins/development)
 for release status, trust policy and the administrator workflow. This repository
 does not enable runtime inventory, modify production trust, publish an inventory,
 or change any tenant configuration as part of adding this asset.
