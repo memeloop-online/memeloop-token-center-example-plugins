@@ -1,0 +1,118 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { runAgentLoop } from './agent-loop.mjs';
+
+const answer = message => ({ choices: [{ message: { role: 'assistant', ...message } }] });
+const call = (id, name, args) => ({ id, type: 'function', function: { name, arguments: JSON.stringify(args) } });
+const options = api => ({ api, keyId: 'selected-key-id', model: 'model', messages: [{ role: 'user', content: 'Inspect workspace' }] });
+
+test('uses selected inference key and resumes after discovery through official loop', async () => {
+  const requests = [];
+  const api = {
+    discoverApi: async () => ({ paths: { '/internal/v1/workspaces': { get: {} } } }),
+    requestApi: async request => {
+      requests.push(request);
+      return requests.length === 1
+        ? answer({ tool_calls: [call('discover', 'discover_api', {})] })
+        : answer({ content: 'Available APIs inspected.' });
+    },
+  };
+  const result = await runAgentLoop(options(api));
+  assert.equal(result.status, 'completed');
+  assert.equal(result.iterations, 2);
+  assert.equal(requests[0].body.key_id, 'selected-key-id');
+  assert.equal(requests[1].body.request.messages.at(-1).role, 'tool');
+  assert.deepEqual(result.messages.at(-1), { role: 'assistant', content: 'Available APIs inspected.' });
+});
+
+test('denies secret routes and unconfirmed changes without sending API operations', async () => {
+  let inferenceCalls = 0;
+  let operations = 0;
+  const api = {
+    discoverApi: async () => ({ paths: { '/internal/v1/workspaces': { post: {} } } }),
+    requestApi: async request => {
+      if (request.path !== '/internal/v1/inference/chat/completions') { operations++; return {}; }
+      inferenceCalls++;
+      return inferenceCalls === 1 ? answer({ tool_calls: [
+        call('docs', 'discover_api', {}),
+        call('secret', 'request_api', { path: '/internal/v1/keys', method: 'POST', body: {} }),
+        call('change', 'request_api', { path: '/internal/v1/workspaces', method: 'POST', body: {} }),
+      ] }) : answer({ content: 'Changes declined.' });
+    },
+  };
+  await runAgentLoop(options(api));
+  assert.equal(operations, 0);
+});
+
+test('cancellation interrupts a pending inference and prevents subsequent tools', async () => {
+  const controller = new AbortController();
+  let discoveries = 0;
+  const api = {
+    discoverApi: async () => { discoveries++; },
+    requestApi: async () => { controller.abort(); return new Promise(() => {}); },
+  };
+  const result = await runAgentLoop({ ...options(api), signal: controller.signal });
+  assert.equal(result.status, 'cancelled');
+  assert.equal(discoveries, 0);
+});
+
+test('bounded loop stops repeated model tool requests', async () => {
+  let calls = 0;
+  const api = {
+    discoverApi: async () => ({ paths: { '/internal/v1/workspaces': { post: {} } } }),
+    requestApi: async () => answer({ tool_calls: [call(String(++calls), 'discover_api', {})] }),
+  };
+  const result = await runAgentLoop({ ...options(api), maxIterations: 2 });
+  assert.equal(result.status, 'max-iterations');
+  assert.equal(calls, 2);
+});
+
+
+test('discovery search reaches paths after a large alphabetical prefix and resolves refs', async () => {
+  let iteration = 0;
+  let toolResult;
+  const paths = Object.fromEntries(Array.from({ length: 200 }, (_, index) => [`/internal/v1/aaa${index}`, { get: { summary: 'Prefix' } }]));
+  paths['/internal/v1/zebra'] = { get: { summary: 'Find zebra', responses: { 200: { $ref: '#/components/responses/Zebra' } } } };
+  const api = {
+    discoverApi: async () => ({ paths, components: { responses: { Zebra: { description: 'Zebra result' } } } }),
+    requestApi: async request => {
+      if (++iteration === 1) return answer({ tool_calls: [call('docs', 'discover_api', { search: 'zebra', path: '/internal/v1/zebra' })] });
+      toolResult = JSON.parse(request.body.request.messages.at(-1).content);
+      return answer({ content: 'Found zebra.' });
+    },
+  };
+  await runAgentLoop(options(api));
+  assert.equal(toolResult.total, 1);
+  assert.equal(toolResult.operations[0].path, '/internal/v1/zebra');
+  assert.equal(toolResult.references['#/components/responses/Zebra'].description, 'Zebra result');
+});
+
+test('passes cancellation signal into discovery, inference, and confirmed API transport', async () => {
+  const controller = new AbortController();
+  let iteration = 0;
+  let operations = 0;
+  const api = {
+    discoverApi: async signal => { assert.equal(signal, controller.signal); return { paths: { '/internal/v1/workspaces': { post: {} } } }; },
+    requestApi: async request => {
+      assert.equal(request.signal, controller.signal);
+      if (request.path !== '/internal/v1/inference/chat/completions') { operations++; return {}; }
+      return ++iteration === 1 ? answer({ tool_calls: [call('docs', 'discover_api', {}), call('write', 'request_api', { path: '/internal/v1/workspaces', method: 'POST', body: {} })] }) : answer({ content: 'Done' });
+    },
+  };
+  await runAgentLoop({ ...options(api), signal: controller.signal, confirmMutation: async () => true });
+  assert.equal(operations, 1);
+});
+
+test('rejects undocumented operations even after successful discovery', async () => {
+  let iteration = 0;
+  let operations = 0;
+  const api = {
+    discoverApi: async () => ({ paths: {} }),
+    requestApi: async request => {
+      if (request.path !== '/internal/v1/inference/chat/completions') { operations++; return {}; }
+      return ++iteration === 1 ? answer({ tool_calls: [call('docs', 'discover_api', {}), call('read', 'request_api', { path: '/internal/v1/imaginary', method: 'GET' })] }) : answer({ content: 'Unavailable.' });
+    },
+  };
+  await runAgentLoop(options(api));
+  assert.equal(operations, 0);
+});
