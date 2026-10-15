@@ -5,13 +5,14 @@ import {build} from 'esbuild';
 import {chromium} from 'playwright';
 import {createServer} from 'node:http';
 import {fileURLToPath} from 'node:url';
+import {mkdirSync} from 'node:fs';
 
 const root=fileURLToPath(new URL('../../',import.meta.url));
 const fixture=`
 import React from 'react';
 import {createRoot} from 'react-dom/client';
 import * as Fluent from '@fluentui/react-components';
-import {activateOperatorUi} from './playground/ui/playground.mjs';
+import {activateOperatorUi} from './dist/playground/mtc-text-playground/ui/playground.mjs';
 const pkg=activateOperatorUi({React,Fluent,defineOperatorUiPackage:x=>x});
 const route={id:'route-1',public_model:'text-model',upstream_model:'upstream',enabled:true,protocol:'openai',created_at:1};
 window.requests=[];window.navigations=[];let iteration=0;
@@ -49,6 +50,8 @@ test('actual plugin mounts, sends, reviews, stops and navigates in Chromium',{ti
   const send=async()=>{await page.getByRole('textbox',{name:'Type a message',exact:true}).fill('Inspect workspace');await page.getByRole('button',{name:'Send',exact:true}).click();};
   await page.goto(url);await choose();await send();
   await page.getByRole('log').getByText('Hello from model',{exact:true}).waitFor();
+  mkdirSync(root+'dist/playground-browser',{recursive:true});
+  await page.screenshot({path:root+'dist/playground-browser/mobile-chat.png',fullPage:true});
   assert.equal(await page.evaluate(()=>window.requests.find(r=>r.body?.key_id)?.body.key_id),'key-1');
   await page.getByRole('button',{name:'Open in Playground'}).click();
   assert.equal(await page.evaluate(()=>window.navigations[0][1].modelRoute.public_model),'text-model');
@@ -56,6 +59,7 @@ test('actual plugin mounts, sends, reviews, stops and navigates in Chromium',{ti
   for(const approval of ['Cancel','Approve']){
    await page.goto(url+'?mode=mutation');await choose();await send();
    const dialog=page.getByRole('dialog');await dialog.waitFor();
+   if(approval==='Cancel')await page.screenshot({path:root+'dist/playground-browser/mutation-review.png',fullPage:true});
    await page.waitForFunction(()=>document.querySelector('[role=dialog]')?.contains(document.activeElement));
    assert.equal(await dialog.evaluate(el=>el.contains(document.activeElement)),true);
    await page.keyboard.press('Tab');
