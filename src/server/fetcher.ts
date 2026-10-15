@@ -90,7 +90,7 @@ interface DataResponse {
   readonly attempts: number;
 }
 
-const USER_AGENT = 'mtc-health-intelligence/1.0 (public-readonly; +https://github.com/memeloop-online/memeloop-token-center-health-intelligence-plugin)';
+const USER_AGENT = 'mtc-health-intelligence/1.0 (public-readonly; +https://github.com/memeloop-online/memeloop-token-center-example-plugins)';
 const MAX_RETRY_AFTER_MS = 2_000;
 
 function mergePolicy(policy: Partial<FetchPolicy> | undefined): FetchPolicy {

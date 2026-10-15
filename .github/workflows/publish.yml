@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   publish:
-    if: github.ref == 'refs/heads/master' && github.repository == 'memeloop-online/memeloop-token-center-health-intelligence-plugin'
+    if: github.ref == 'refs/heads/master' && github.repository == 'memeloop-online/memeloop-token-center-example-plugins'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment:
@@ -25,7 +25,7 @@ jobs:
     env:
       PLUGIN_ID: mtc-health-intelligence
       PLUGIN_SOURCE: ghcr.io/memeloop-online/memeloop-token-center-health-intelligence-plugin
-      SIGNING_IDENTITY: https://github.com/memeloop-online/memeloop-token-center-health-intelligence-plugin/.github/workflows/publish.yml@refs/heads/master
+      SIGNING_IDENTITY: https://github.com/memeloop-online/memeloop-token-center-example-plugins/.github/workflows/publish.yml@refs/heads/master
       SIGNING_ISSUER: https://token.actions.githubusercontent.com
     steps:
       - name: Check out source

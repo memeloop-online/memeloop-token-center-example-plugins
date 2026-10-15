@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   publish:
-    if: github.repository == 'memeloop-online/memeloop-token-center-health-intelligence-plugin'
+    if: github.repository == 'memeloop-online/memeloop-token-center-example-plugins'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment:

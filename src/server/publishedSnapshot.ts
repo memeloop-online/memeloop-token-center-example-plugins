@@ -2,7 +2,7 @@ import type { HealthIntelligenceSnapshot } from '../shared/types.js';
 import { decodeSnapshot } from './decodeSnapshot.js';
 import { readBodyWithCap, type FetchLike } from './fetcher.js';
 
-export const PUBLISHED_SNAPSHOT_URL = 'https://memeloop-online.github.io/memeloop-token-center-health-intelligence-plugin/api/health-intelligence.json';
+export const PUBLISHED_SNAPSHOT_URL = 'https://memeloop-online.github.io/memeloop-token-center-example-plugins/api/health-intelligence.json';
 
 export async function fetchPublishedSnapshot(fetcher: FetchLike = fetch): Promise<HealthIntelligenceSnapshot> {
   const controller = new AbortController();
