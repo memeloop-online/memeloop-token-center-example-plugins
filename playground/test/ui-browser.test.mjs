@@ -15,14 +15,18 @@ import * as Fluent from '@fluentui/react-components';
 import {activateOperatorUi} from './dist/playground/mtc-text-playground/ui/playground.mjs';
 const pkg=activateOperatorUi({React,Fluent,defineOperatorUiPackage:x=>x});
 const route={id:'route-1',public_model:'text-model',upstream_model:'upstream',enabled:true,protocol:'openai',created_at:1};
+const anthropicRoute={...route,id:'route-2',public_model:'anthropic-model',protocol:'anthropic'};
 window.requests=[];window.responses=[];window.navigations=[];let iteration=0;
 const mode=new URLSearchParams(location.search).get('mode');
 const call=(id,name,args)=>({id,type:'function',function:{name,arguments:JSON.stringify(args)}});
 const api={navigate:(...args)=>window.navigations.push(args),discoverApi:async()=>({paths:{'/internal/v1/widgets':{post:{}}}}),requestApi:async req=>{
  window.requests.push(req);
- if(req.path.includes('model-routes')){if(mode==='403')throw Object.assign(new Error('Forbidden'),{status:403});return [route];}
+ if(req.path.includes('model-routes')){if(mode==='403')throw Object.assign(new Error('Forbidden'),{status:403});return [route,anthropicRoute];}
  if(req.path.startsWith('/internal/v1/keys'))return [{key_id:'key-1',alias:'Billing',created_at:1}];
  if(req.path==='/internal/v1/widgets')return {ok:true};
+ if(req.path==='/internal/v1/inference/messages'){
+  const response={id:'anthropic-response',type:'message',role:'assistant',content:[{type:'text',text:'Hello from Anthropic'}],stop_reason:'end_turn'};window.responses.push(response);return response;
+ }
  if(req.path==='/internal/v1/inference/chat/completions'){
   if(mode==='pending')return new Promise(()=>{});
   iteration++;
@@ -32,7 +36,7 @@ const api={navigate:(...args)=>window.navigations.push(args),discoverApi:async()
  throw new Error('Unexpected path '+req.path);
 }};
 const view=createRoot(document.getElementById('root'));window.unmount=()=>view.unmount();
-view.render(React.createElement(Fluent.FluentProvider,{theme:Fluent.webLightTheme},React.createElement(pkg.components.workspace,{api,tenantExternalId:'tenant-a',locale:'en',context:{}}),React.createElement(pkg.components['open-model'],{api,context:{modelRoute:route},locale:'en'})));
+view.render(React.createElement(Fluent.FluentProvider,{theme:Fluent.webLightTheme},React.createElement(pkg.components.workspace,{api,tenantExternalId:'tenant-a',locale:'en',context:{}}),React.createElement(pkg.components['open-model'],{api,context:{modelRoute:mode==='anthropic'?anthropicRoute:route},locale:'en'})));
 `;
 
 test('actual plugin mounts, sends, reviews, stops and navigates in Chromium',{timeout:120000},async()=>{
@@ -62,6 +66,21 @@ test('actual plugin mounts, sends, reviews, stops and navigates in Chromium',{ti
   await page.getByRole('button',{name:'Open in Playground'}).click();
   assert.equal(await page.evaluate(()=>window.navigations[0][1].modelRoute.public_model),'text-model');
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+  assert.equal(await page.evaluate(()=>Array.isArray(window.requests.find(r=>r.body?.request)?.body.request.tools)),true);
+  await page.goto(url+'?mode=no-tools');await choose();
+  await page.getByRole('checkbox',{name:'Allow assistant product tools',exact:true}).uncheck();await send();
+  await page.getByRole('log').filter({hasText:'Hello from model'}).waitFor();
+  await page.getByText('Done · Iterations:',{exact:false}).waitFor();
+  assert.equal(await page.evaluate(()=>Object.hasOwn(window.requests.find(r=>r.body?.request).body.request,'tools')),false);
+  await page.goto(url+'?mode=anthropic');
+  await page.locator('#mtp-model').selectOption('route-2');await page.locator('#mtp-key').selectOption('key-1');
+  await page.getByRole('checkbox',{name:'Allow assistant product tools',exact:true}).uncheck();await send();
+  await page.getByRole('log').filter({hasText:'Hello from Anthropic'}).waitFor();
+  await page.getByText('Done · Iterations:',{exact:false}).waitFor();
+  assert.deepEqual(await page.evaluate(()=>{const req=window.requests.find(r=>r.body?.request);return {path:req.path,model:req.body.request.model,hasTools:Object.hasOwn(req.body.request,'tools')};}),{path:'/internal/v1/inference/messages',model:'anthropic-model',hasTools:false});
+  await page.getByRole('button',{name:'Open in Playground'}).click();
+  assert.equal(await page.evaluate(()=>window.navigations[0][1].modelRoute.protocol),'anthropic');
+
   for(const approval of ['Cancel','Approve']){
    await page.goto(url+'?mode=mutation');await choose();await send();
    const dialog=page.getByRole('dialog');await dialog.waitFor();
@@ -82,6 +101,7 @@ test('actual plugin mounts, sends, reviews, stops and navigates in Chromium',{ti
   }
   await page.goto(url+'?mode=pending');await choose();await send();
   assert.equal(await page.locator('#mtp-key').isDisabled(),true);
+  assert.equal(await page.getByRole('checkbox',{name:'Allow assistant product tools',exact:true}).isDisabled(),true);
   await page.getByRole('button',{name:'Stop',exact:true}).click();
   await page.getByText('Stopped. The upstream request may still continue and incur cost.',{exact:true}).waitFor();
   await page.evaluate(()=>window.unmount());

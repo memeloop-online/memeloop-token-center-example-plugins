@@ -4,7 +4,7 @@ let React,Fluent;
 const PAGE=10;
 const MAX_ROUTES=5000;
 const MAX_TOOL_RESULT=600;
-const OPENAI_PROTOCOLS=['openai'];
+const TEXT_PROTOCOLS=['openai','anthropic'];
 
 const COPY={
 zh:{
@@ -42,7 +42,8 @@ upstream:'上游模型',
 selectKeyFirst:'请先选择计费密钥。',
 selectModelFirst:'请先选择模型。',
 openInPlayground:'在游乐场打开',
-disabledRoute:'该路由未启用或协议不受支持（仅支持 OpenAI 兼容协议）。',
+disabledRoute:'该路由未启用或不是支持的文本协议（OpenAI / Anthropic）。',
+enableTools:'允许助手使用产品工具',
 roleUser:'用户',
 roleAssistant:'助手',
 assistantThinking:'思考中…',
@@ -83,7 +84,8 @@ upstream:'Upstream model',
 selectKeyFirst:'Select a billing key first.',
 selectModelFirst:'Select a model first.',
 openInPlayground:'Open in Playground',
-disabledRoute:'Route is disabled or uses an unsupported protocol (OpenAI-compatible only).',
+disabledRoute:'Route is disabled or does not use a supported text protocol (OpenAI / Anthropic).',
+enableTools:'Allow assistant product tools',
 roleUser:'You',
 roleAssistant:'Assistant',
 assistantThinking:'Thinking…',
@@ -166,6 +168,7 @@ const [messages,setMessages]=React.useState([]);
 const [tools,setTools]=React.useState([]);
 const [draft,setDraft]=React.useState('');
 const [busy,setBusy]=React.useState(false);
+const [enableTools,setEnableTools]=React.useState(true);
 const [statusNote,setStatusNoteState]=React.useState(null);
 const setStatusNote=(text,intent='info')=>setStatusNoteState(text?{text,intent}:null);
 const rootRef=React.useRef(null);
@@ -226,7 +229,7 @@ setLoadState({status:'error',error:err,forbidden:status===403});
 return()=>{alive=false;ctrl.abort();};
 },[supported,tenantKey,api,reloadTick]);
 
-const usableRoutes=React.useMemo(()=>routes.filter(r=>r&&r.enabled&&OPENAI_PROTOCOLS.indexOf(r.protocol)>=0),[routes]);
+const usableRoutes=React.useMemo(()=>routes.filter(r=>r&&r.enabled&&TEXT_PROTOCOLS.indexOf(r.protocol)>=0),[routes]);
 
 const protocols=React.useMemo(()=>{
 const set=new Set();
@@ -302,6 +305,8 @@ const result=await runAgentLoop({
 api,
 keyId:selectedKey.id,
 model:selectedRoute.public_model,
+protocol:selectedRoute.protocol,
+enableTools,
 messages:base,
 signal:ctrl.signal,
 confirmMutation,
@@ -402,7 +407,9 @@ h(Fluent.Button,{appearance:'primary',disabled:busy||!draft.trim()||!selectedRou
 h(Fluent.Button,{disabled:!busy,onClick:stopRun},t.stop),
 h(Fluent.Button,{'data-playground-clear':true,disabled:busy,onClick:clearChat},t.clear));
 
-body=h(React.Fragment,null,h('div',{style:styles.filters},modelField,keyField),routeInfo,notices,transcript,composer);
+body=h(React.Fragment,null,h('div',{style:styles.filters},modelField,keyField),routeInfo,
+h(Fluent.Checkbox,{label:t.enableTools,checked:enableTools,disabled:busy,onChange:(_e,data)=>setEnableTools(data.checked===true)}),
+notices,transcript,composer);
 }
 
 return h('div',{style:styles.root,ref:rootRef},
@@ -415,7 +422,7 @@ h(ReviewDialog,{request:review,t:t,onResolve:resolveReview}));
 function OpenModel({context,api,locale}){
 const h=React.createElement;
 const route=context&&context.modelRoute;
-const enabled=!!(route&&route.enabled&&route.protocol!=='anthropic'&&OPENAI_PROTOCOLS.indexOf(route.protocol)>=0);
+const enabled=!!(route&&route.enabled&&TEXT_PROTOCOLS.indexOf(route.protocol)>=0);
 const t=copyFor(locale);
 const onClick=()=>{
 if(!enabled||!route)return;
