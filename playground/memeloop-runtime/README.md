@@ -27,3 +27,8 @@ and denies credential/secret and export routes. Discovery supports path/summary 
 cannot be rolled back by browser cancellation. Host-side operator permissions and
 tenant isolation apply to every request. Local tests/builds were not run, per the
 shared workspace AGENTS.md; CI must verify the shipped plugin.
+
+Provider `reasoning_content` strings are preserved only in private per-run assistant
+protocol messages for native Kimi tool continuation. They are never included in UI
+events or returned display messages. `enableTools: false` omits tool definitions
+for text-only models and prevents execution of unsolicited tool calls.

@@ -116,3 +116,40 @@ test('rejects undocumented operations even after successful discovery', async ()
   await runAgentLoop(options(api));
   assert.equal(operations, 0);
 });
+
+
+test('preserves provider reasoning privately for tool continuation without exposing it', async () => {
+  const privateReasoning = 'provider-private-continuation-state';
+  const events = [];
+  let inferenceCalls = 0;
+  let continuation;
+  const api = {
+    discoverApi: async () => ({ paths: {} }),
+    requestApi: async request => {
+      if (++inferenceCalls === 1) return answer({ content: 'Inspecting APIs.', reasoning_content: privateReasoning, tool_calls: [call('docs', 'discover_api', {})] });
+      continuation = request.body.request.messages.find(message => message.role === 'assistant');
+      return answer({ content: 'Inspection complete.', reasoning_content: 'private-final-state' });
+    },
+  };
+  const result = await runAgentLoop({ ...options(api), onEvent: event => events.push(event) });
+  assert.equal(continuation.reasoning_content, privateReasoning);
+  assert.equal(continuation.tool_calls[0].id, 'docs');
+  assert.equal(JSON.stringify(events).includes(privateReasoning), false);
+  assert.equal(JSON.stringify(events).includes('reasoning_content'), false);
+  assert.equal(JSON.stringify(result).includes('reasoning_content'), false);
+  assert.equal(JSON.stringify(result).includes('private-final-state'), false);
+  assert.deepEqual(result.messages.at(-1), { role: 'assistant', content: 'Inspection complete.' });
+});
+
+test('tool-less mode omits tool definitions from inference and never runs tools', async () => {
+  let discoveries = 0;
+  let inferenceRequest;
+  const api = {
+    discoverApi: async () => { discoveries++; return { paths: {} }; },
+    requestApi: async request => { inferenceRequest = request.body.request; return answer({ content: 'Text-only answer.' }); },
+  };
+  const result = await runAgentLoop({ ...options(api), enableTools: false });
+  assert.equal(Object.hasOwn(inferenceRequest, 'tools'), false);
+  assert.equal(discoveries, 0);
+  assert.equal(result.iterations, 1);
+});
