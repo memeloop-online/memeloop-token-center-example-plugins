@@ -24,6 +24,13 @@ jobs:
         run: node --test playground/agent-loop.test.mjs playground/test/ui-unit.test.mjs
       - name: Build self-contained installable review package
         run: npm run build:playground
+      - name: Preserve package, manifest and digest evidence
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4
+        with:
+          name: mtc-text-playground-${{ github.sha }}
+          path: dist/playground/
+          if-no-files-found: error
+          retention-days: 30
       - name: Install pinned host UI and browser test dependencies in CI
         run: |
           npm install --no-save --package-lock=false react@19.2.8 react-dom@19.2.8 @fluentui/react-components@9.74.7 playwright@1.62.1 esbuild@0.25.12
@@ -37,11 +44,4 @@ jobs:
           name: playground-browser-${{ github.sha }}
           path: dist/playground-browser/
           if-no-files-found: warn
-          retention-days: 30
-      - name: Preserve package, manifest and digest evidence
-        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4
-        with:
-          name: mtc-text-playground-${{ github.sha }}
-          path: dist/playground/
-          if-no-files-found: error
           retention-days: 30
