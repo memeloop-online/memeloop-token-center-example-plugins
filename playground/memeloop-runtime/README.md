@@ -32,3 +32,11 @@ Provider `reasoning_content` strings are preserved only in private per-run assis
 protocol messages for native Kimi tool continuation. They are never included in UI
 events or returned display messages. `enableTools: false` omits tool definitions
 for text-only models and prevents execution of unsolicited tool calls.
+
+`protocol: 'anthropic'` uses `/internal/v1/inference/messages` with the selected
+`key_id`, separate system prompt, `max_tokens: 2048`, and native Messages tool
+schemas. Assistant content blocks (including opaque thinking/signature blocks)
+are replayed only in private protocol history. Tool outputs are grouped into a
+native user `tool_result` turn. Only text blocks reach display events/messages.
+The default `protocol: 'openai'` retains Chat Completions behavior. Both protocols
+use the same host authorization, tenant scope, cancellation, and tool policies.

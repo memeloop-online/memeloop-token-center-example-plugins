@@ -153,3 +153,51 @@ test('tool-less mode omits tool definitions from inference and never runs tools'
   assert.equal(discoveries, 0);
   assert.equal(result.iterations, 1);
 });
+
+test('Anthropic tool continuation uses selected key, Messages endpoint, and native private blocks', async () => {
+  const events = [];
+  const thinking = { type: 'thinking', thinking: 'private-anthropic-thought', signature: 'opaque-signature' };
+  let iterations = 0;
+  let continuation;
+  const api = {
+    discoverApi: async () => ({ paths: {} }),
+    requestApi: async request => {
+      assert.equal(request.path, '/internal/v1/inference/messages');
+      assert.equal(request.body.key_id, 'selected-key-id');
+      assert.equal(request.body.request.model, 'claude-selected');
+      assert.equal(request.body.request.max_tokens, 2048);
+      assert.equal(typeof request.body.request.system, 'string');
+      assert.equal(request.body.request.messages.some(message => message.role === 'system'), false);
+      assert.equal(request.body.request.tools[0].name, 'discover_api');
+      assert.equal(request.body.request.tools[0].input_schema.type, 'object');
+      if (++iterations === 1) return { role: 'assistant', content: [thinking, { type: 'text', text: 'Inspecting.' }, { type: 'tool_use', id: 'tool-discovery', name: 'discover_api', input: {} }] };
+      continuation = structuredClone(request.body.request.messages);
+      return { role: 'assistant', content: [{ type: 'text', text: 'Inspection complete.' }] };
+    },
+  };
+  const result = await runAgentLoop({ ...options(api), model: 'claude-selected', protocol: 'anthropic', onEvent: event => events.push(event) });
+  assert.deepEqual(continuation[1].content[0], thinking);
+  assert.equal(continuation[2].role, 'user');
+  assert.equal(continuation[2].content[0].type, 'tool_result');
+  assert.equal(continuation[2].content[0].tool_use_id, 'tool-discovery');
+  assert.equal(JSON.parse(continuation[2].content[0].content).total, 0);
+  assert.equal(JSON.stringify(events).includes(thinking.thinking), false);
+  assert.equal(JSON.stringify(result).includes(thinking.signature), false);
+  assert.deepEqual(result.messages.at(-1), { role: 'assistant', content: 'Inspection complete.' });
+});
+
+test('Anthropic text-only mode has native plain Messages request and no tools', async () => {
+  const api = {
+    discoverApi: async () => { throw new Error('Must not discover'); },
+    requestApi: async request => {
+      assert.equal(request.path, '/internal/v1/inference/messages');
+      assert.equal(Object.hasOwn(request.body.request, 'tools'), false);
+      assert.deepEqual(request.body.request.messages, [{ role: 'user', content: 'Inspect workspace' }]);
+      return { role: 'assistant', content: [{ type: 'redacted_thinking', data: 'private-opaque' }, { type: 'text', text: 'Text response.' }] };
+    },
+  };
+  const result = await runAgentLoop({ ...options(api), protocol: 'anthropic', enableTools: false });
+  assert.equal(result.status, 'completed');
+  assert.equal(JSON.stringify(result).includes('private-opaque'), false);
+  assert.deepEqual(result.messages.at(-1), { role: 'assistant', content: 'Text response.' });
+});
