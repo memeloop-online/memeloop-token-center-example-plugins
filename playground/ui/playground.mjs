@@ -1,7 +1,7 @@
 import {runAgentLoop} from '../agent-loop.mjs';
 
 let React,Fluent;
-const PAGE=100;
+const PAGE=10;
 const MAX_ROUTES=5000;
 const MAX_TOOL_RESULT=600;
 const OPENAI_PROTOCOLS=['openai'];
@@ -21,7 +21,7 @@ retry:'重试',
 empty:'没有符合条件的已启用模型。',
 err403:'没有读取权限（需要 keys:read）。请联系管理员授权。',
 unsupported:'当前宿主不支持此插件所需的 API，请升级控制平面版本。',
-billing:'推理费用由所选密钥承担；聊天历史仅保存在临时内存中，但请求的计费记录会被保留。',
+billing:'推理使用所选计费密钥。聊天仅临时保存，计费记录会保留。',
 noAccess:'路由列出不代表拥有模型访问权限，请以实际推理结果为准。',
 input:'输入消息',
 send:'发送',
@@ -62,7 +62,7 @@ retry:'Retry',
 empty:'No enabled models match the filters.',
 err403:'Missing read permission (keys:read required). Contact your administrator.',
 unsupported:'This host does not provide the APIs required by this plugin. Please upgrade the control plane.',
-billing:'Inference is billed to the selected key. Chat history is kept in temporary memory only, but request billing records are retained.',
+billing:'Inference uses the selected billing key. Chat is temporary; billing records remain.',
 noAccess:'A listed route does not imply model access; actual inference results apply.',
 input:'Type a message',
 send:'Send',
@@ -142,11 +142,11 @@ pre:{background:'#f3f2f1',padding:8,borderRadius:4,overflowX:'auto',fontSize:12,
 
 function ReviewDialog({request,t,onResolve}){
 const h=React.createElement;
-return h(Fluent.Dialog,{open:true,onOpenChange:(_e,data)=>{if(!data.open)onResolve(false);}},
+return h(Fluent.Dialog,{open:Boolean(request),onOpenChange:(_e,data)=>{if(!data.open)onResolve(false);}},
 h(Fluent.DialogSurface,null,h(Fluent.DialogBody,null,
 h(Fluent.DialogTitle,null,t.reviewTitle),
 h(Fluent.DialogContent,null,h(Fluent.Text,null,t.reviewBody),
-h('pre',{style:styles.pre},String(request.method||'').toUpperCase()+' '+String(request.path||'')+'\n'+(request.body?truncate(JSON.stringify(request.body,null,2),1500):''))),
+h('pre',{style:styles.pre},String(request?.method||'').toUpperCase()+' '+String(request?.path||'')+'\n'+(request?.body?truncate(JSON.stringify(request?.body,null,2),1500):''))),
 h(Fluent.DialogActions,null,
 h(Fluent.Button,{appearance:'primary',onClick:()=>onResolve(true)},t.approve),
 h(Fluent.Button,{onClick:()=>onResolve(false)},t.cancel)))));
@@ -166,7 +166,10 @@ const [messages,setMessages]=React.useState([]);
 const [tools,setTools]=React.useState([]);
 const [draft,setDraft]=React.useState('');
 const [busy,setBusy]=React.useState(false);
-const [statusNote,setStatusNote]=React.useState(null);
+const [statusNote,setStatusNoteState]=React.useState(null);
+const setStatusNote=(text,intent='info')=>setStatusNoteState(text?{text,intent}:null);
+const rootRef=React.useRef(null);
+const restoreReviewFocusRef=React.useRef(false);
 const [review,setReview]=React.useState(null);
 const mountedRef=React.useRef(true);
 const generationRef=React.useRef(0);
@@ -174,6 +177,13 @@ const abortRef=React.useRef(null);
 const sendMutexRef=React.useRef(false);
 const reviewResolveRef=React.useRef(null);
 const [reloadTick,setReloadTick]=React.useState(0);
+
+React.useEffect(()=>{
+if(!busy&&!review&&restoreReviewFocusRef.current){
+restoreReviewFocusRef.current=false;
+rootRef.current?.querySelector('[data-playground-clear]')?.focus();
+}
+},[busy,review]);
 
 const supported=api&&typeof api.requestApi==='function'&&typeof api.discoverApi==='function';
 const tenantKey=tenantExternalId||'';
@@ -260,21 +270,22 @@ const resolveReview=(val)=>{
 const r=reviewResolveRef.current;
 reviewResolveRef.current=null;
 setReview(null);
+restoreReviewFocusRef.current=true;
 if(r)r(!!val);
 };
 
 const stopRun=()=>{
 if(abortRef.current){abortRef.current.abort();}
 if(reviewResolveRef.current)resolveReview(false);
-setStatusNote(t.stopNote);
+setStatusNote(t.stopNote,'warning');
 };
 
 const send=async()=>{
 if(sendMutexRef.current||busy)return;
 const text=draft.trim();
 if(!text)return;
-if(!selectedRoute){setStatusNote(t.selectModelFirst);return;}
-if(!selectedKey){setStatusNote(t.selectKeyFirst);return;}
+if(!selectedRoute){setStatusNote(t.selectModelFirst,'warning');return;}
+if(!selectedKey){setStatusNote(t.selectKeyFirst,'warning');return;}
 sendMutexRef.current=true;
 setBusy(true);
 setStatusNote(null);
@@ -311,19 +322,19 @@ if(result&&Array.isArray(result.messages)){
 setMessages(result.messages.map(m=>({role:m.role,content:typeof m.content==='string'?m.content:''})));
 }
 if(ctrl.signal.aborted||result?.status==='cancelled'){
-setStatusNote(t.stopNote);
+setStatusNote(t.stopNote,'warning');
 }else if(result&&result.status==='max-iterations'){
-setStatusNote(t.maxIter+(result.iterations!=null?' ('+t.iter+': '+result.iterations+')':''));
+setStatusNote(t.maxIter+(result.iterations!=null?' ('+t.iter+': '+result.iterations+')':''),'warning');
 }else{
-setStatusNote(t.done+(result&&result.iterations!=null?' · '+t.iter+': '+result.iterations:''));
+setStatusNote(t.done+(result&&result.iterations!=null?' · '+t.iter+': '+result.iterations:''),'success');
 }
 }catch(err){
 if(!current())return;
 if(err&&err.name==='AbortError'){
-setStatusNote(t.stopNote);
+setStatusNote(t.stopNote,'warning');
 }else{
 setDraft(text);
-setStatusNote(t.error+': '+(err&&err.message?err.message:String(err)));
+setStatusNote(t.error+': '+(err&&err.message?err.message:String(err)),'error');
 }
 }finally{
 if(abortRef.current===ctrl)abortRef.current=null;
@@ -376,7 +387,7 @@ h(Fluent.Text,{size:200},t.upstream+': '+selectedRoute.upstream_model));
 
 const notices=h('div',{style:{display:'flex',flexDirection:'column',gap:6}},
 h(Fluent.MessageBar,{intent:'info'},h(Fluent.MessageBarBody,null,t.billing,' ',t.noAccess)),
-statusNote&&h(Fluent.MessageBar,{intent:/error|Error/.test(statusNote)?'error':'warning'},h(Fluent.MessageBarBody,null,statusNote)));
+statusNote&&h(Fluent.MessageBar,{intent:statusNote.intent},h(Fluent.MessageBarBody,null,statusNote.text)));
 
 const transcript=h('div',{style:styles.chat,role:'log','aria-live':'polite','aria-label':t.title},
 messages.map((m,i)=>h('div',{key:'m'+i,style:m.role==='user'?styles.msgUser:styles.msgAssistant},
@@ -389,16 +400,16 @@ const composer=h('div',{style:styles.composer},
 h(Fluent.Textarea,{value:draft,disabled:busy,'aria-label':t.input,placeholder:t.input,resize:'vertical',style:{flex:'1 1 180px',minWidth:0},onChange:(e,d)=>setDraft(d&&d.value!=null?d.value:''),onKeyDown:e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}}}),
 h(Fluent.Button,{appearance:'primary',disabled:busy||!draft.trim()||!selectedRoute||!selectedKey,onClick:send},t.send),
 h(Fluent.Button,{disabled:!busy,onClick:stopRun},t.stop),
-h(Fluent.Button,{disabled:busy,onClick:clearChat},t.clear));
+h(Fluent.Button,{'data-playground-clear':true,disabled:busy,onClick:clearChat},t.clear));
 
-body=h(React.Fragment,null,modelField,keyField,routeInfo,notices,transcript,composer);
+body=h(React.Fragment,null,h('div',{style:styles.filters},modelField,keyField),routeInfo,notices,transcript,composer);
 }
 
-return h('div',{style:styles.root},
+return h('div',{style:styles.root,ref:rootRef},
 header,
 filterBar,
 body,
-review&&h(ReviewDialog,{request:review,t:t,onResolve:resolveReview}));
+h(ReviewDialog,{request:review,t:t,onResolve:resolveReview}));
 }
 
 function OpenModel({context,api,locale}){

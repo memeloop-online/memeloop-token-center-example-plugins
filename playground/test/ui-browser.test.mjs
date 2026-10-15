@@ -73,6 +73,9 @@ test('actual plugin mounts, sends, reviews, stops and navigates in Chromium',{ti
    await dialog.getByRole('button',{name:approval,exact:true}).click();
    await page.getByRole('log').filter({hasText:'Hello from model'}).waitFor();
    await page.getByText('Done · Iterations:',{exact:false}).waitFor();
+   await page.waitForFunction(()=>{const root=document.getElementById('root');return !root.closest('[aria-hidden=true],[inert]')&&!root.querySelector('[aria-hidden=true] [role=log],[inert] [role=log]')&&document.activeElement?.hasAttribute('data-playground-clear');});
+   assert.equal(await page.getByRole('log').count(),1);
+   assert.equal(await page.getByRole('button',{name:'Clear',exact:true}).evaluate(el=>el===document.activeElement),true);
    assert.equal(await page.evaluate(()=>window.responses.at(-1)?.choices[0]?.message.content),'Hello from model');
    assert.equal(await page.getByText('An error occurred:',{exact:false}).count(),0);
    assert.equal(await page.evaluate(()=>window.requests.filter(r=>r.path==='/internal/v1/widgets').length),approval==='Approve'?1:0);
