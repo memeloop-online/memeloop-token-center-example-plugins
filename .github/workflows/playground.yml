@@ -21,7 +21,7 @@ jobs:
         with:
           node-version: 24.18.0
       - name: Verify agent orchestration and tool authority
-        run: node --test playground/agent-loop.test.mjs playground/test/ui-unit.test.mjs
+        run: node --test playground/agent-loop.test.mjs playground/test/ui-unit.test.mjs scripts/verify-playground-release.test.mjs
       - name: Build self-contained installable review package
         run: npm run build:playground
       - name: Preserve package, manifest and digest evidence

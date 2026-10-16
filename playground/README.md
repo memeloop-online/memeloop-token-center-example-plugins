@@ -17,3 +17,63 @@ The plugin requires a host supporting `operator.model-route.action`, navigation 
 ## Build
 
 In CI, run `npm run build:playground`. It invokes pinned `esbuild@0.25.12`, bundles `playground/ui/playground.mjs` and the browser loop into one ESM file, rejects external imports and emits the review archive and digest evidence. Root health-intelligence build and publication remain independent.
+
+## Signed OCI production publication
+
+After reviewing and merging the publication PR, a maintainer may manually run
+**publish signed playground plugin** (`publish-playground.yml`) on `master`.
+Pull requests never publish, sign, or deploy packages. Publication uses the same
+reviewed installer image and Cosign version in `release/installer-trust.json` as
+the existing health plugin. It builds only the external UI plugin; no core image
+is rebuilt. Registry publication needs the repository workflow's package-write
+permission and GitHub OIDC authority.
+
+The workflow publishes these exact trust coordinates:
+
+| Setting | Value |
+| --- | --- |
+| Plugin ID | `mtc-text-playground` |
+| Repository | `ghcr.io/memeloop-online/memeloop-token-center-text-playground-plugin` |
+| Reference | Repository plus `@sha256:<digest>` from `plugin-release.json` |
+| Signature policy | Cosign keyless |
+| Certificate identity | `https://github.com/memeloop-online/memeloop-token-center-example-plugins/.github/workflows/publish-playground.yml@refs/heads/master` |
+| OIDC issuer | `https://token.actions.githubusercontent.com` |
+
+Do not trust the mutable `sha-<revision>` tag for installation. The release job
+signs the immutable OCI digest, verifies the exact identity and issuer, and then
+reinstalls the signed bytes with the pinned official MTC installer in an empty
+plugin directory. It compares every installed file with the bundled package,
+checks the OCI layer digests and install receipt, and emits `plugin-release.json`.
+The `mtc-text-playground-release-<revision>` Actions artifact preserves that
+reference, verification output, receipt, OCI manifest, source revision, bundled
+module digest, licenses, and the reviewed installer trust record for 90 days.
+The digest is available only after a successful publication; this source tree
+intentionally contains no placeholder production digest.
+
+The production administrator must review that evidence and configure the normal
+plugin trust policy for the exact repository, certificate identity, and issuer.
+Install the digest through the host's existing plugin installation/lifecycle
+interface using that policy. GHCR read credentials may be needed if the package
+is private. Do not disable signature checks or broaden the source allowlist.
+The bundle contains `plugin.json`, `ui/playground.mjs`, README, LICENSE, and
+THIRD_PARTY_NOTICES; `wasm` is null and no capabilities are requested.
+
+For a command-line clean installation, use the already reviewed installer with
+these arguments (supply the published immutable reference as `$PLUGIN_REFERENCE`):
+
+```sh
+install-plugin-oci "$PLUGIN_REFERENCE" \
+  --plugin-dir /plugins \
+  --allowed-source ghcr.io/memeloop-online/memeloop-token-center-text-playground-plugin \
+  --cosign-certificate-identity https://github.com/memeloop-online/memeloop-token-center-example-plugins/.github/workflows/publish-playground.yml@refs/heads/master \
+  --cosign-certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+The current production host must already provide the discovery, inference, UI
+module loading, and navigation contracts described above. After trusted hot
+installation, enable the plugin using the host lifecycle interface and verify
+both sidebar navigation and a model-route action, ordinary and agent text turns,
+and billing on the selected existing key. Uninstall through that same lifecycle
+interface and confirm the sidebar and model-route action disappear without a
+core image rollout. This publication workflow changes no production trust,
+activation state, or installed files; the production operator owns those steps.
