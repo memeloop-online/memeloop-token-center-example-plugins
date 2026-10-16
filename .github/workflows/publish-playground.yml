@@ -35,7 +35,7 @@ jobs:
           node-version: 24.18.0
       - name: Verify and build the self-contained UI package
         run: |
-          node --test playground/agent-loop.test.mjs playground/test/ui-unit.test.mjs scripts/verify-playground-release.test.mjs
+          node --test playground/agent-loop.test.mjs playground/test/ui-unit.test.mjs playground/test/release-evidence.test.mjs
           npm run build:playground
       - name: Resolve reviewed installer trust
         run: |

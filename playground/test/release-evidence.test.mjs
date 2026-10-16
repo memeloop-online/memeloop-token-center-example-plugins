@@ -7,7 +7,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const verifier = join(root, 'scripts/verify-playground-release.mjs');
 const hash = bytes => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 const source = 'ghcr.io/memeloop-online/memeloop-token-center-text-playground-plugin';
