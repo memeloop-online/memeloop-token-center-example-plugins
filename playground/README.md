@@ -24,8 +24,12 @@ After reviewing and merging the publication PR, a maintainer may manually run
 **publish signed playground plugin** (`publish-playground.yml`) on `master`.
 Pull requests never publish, sign, or deploy packages. Publication uses the same
 reviewed installer image and Cosign version in `release/playground-installer-trust.json`.
-Publication fails closed until that file contains a reviewed compatible digest,
-source revision, verification run, and `status: ready`. The older health-plugin
+Publication requires that file to contain a reviewed compatible digest,
+source revision, verification run, and `status: ready`. The initial reviewed pin
+uses installer source `80fde8bfb77e15f8fa70b55ba7ad4655e1406459`, image digest
+`sha256:9006ecd8b35632cdf9159d3ede46704607884fcd529b98ff9eed1e759225a036`,
+and patched Cosign `v3.1.3-mtc.4`, verified in the successful
+[official source CI run](https://github.com/memeloop-online/memeloop-token-center/actions/runs/38839841258). The older health-plugin
 installer pin does not understand `operator.model-route.action` and cannot be reused. It builds only the external UI plugin; no core image
 is rebuilt. Registry publication needs the repository workflow's package-write
 permission and GitHub OIDC authority.
