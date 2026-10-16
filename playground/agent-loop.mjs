@@ -46,9 +46,10 @@ function responseMessage(response) {
 function anthropicMessage(response) {
   const root = response?.response ?? response?.data?.response ?? response?.data ?? response;
   if (root?.role !== 'assistant' || !Array.isArray(root.content)) throw new Error('Inference returned no Anthropic assistant message');
+  const content = root.content.map(block => block?.type === 'tool_use' && block.input == null ? { ...block, input: {} } : block);
   const text = [];
   const calls = [];
-  for (const block of root.content) {
+  for (const block of content) {
     if (!block || typeof block !== 'object') throw new Error('Invalid Anthropic content block');
     if (block.type === 'text') {
       if (typeof block.text !== 'string') throw new Error('Invalid Anthropic text');
@@ -60,7 +61,7 @@ function anthropicMessage(response) {
     // Thinking/signature and other opaque provider blocks remain private and must
     // be replayed verbatim to preserve the native tool-continuation contract.
   }
-  return { message: { role: 'assistant', content: root.content }, text: text.join('\n'), calls };
+  return { message: { role: 'assistant', content }, text: text.join('\n'), calls };
 }
 function operationFor(document, path, method) {
   const pathname = path.split('?')[0];
@@ -69,8 +70,11 @@ function operationFor(document, path, method) {
     const segments = template.split('/');
     return segments.length === parts.length && segments.every((segment, index) => /^\{[^{}]+\}$/.test(segment) || segment === parts[index]);
   });
-  const entry = candidates.find(([template]) => template === pathname) ?? candidates[0];
-  return entry?.[1]?.[method.toLowerCase()];
+  const exact = candidates.find(([template]) => template === pathname);
+  if (exact) return exact[1]?.[method.toLowerCase()];
+  const ranked = candidates.map(entry => ({ entry, literals: entry[0].split('/').filter(segment => !/^\{[^{}]+\}$/.test(segment)).length })).sort((a, b) => b.literals - a.literals);
+  if (ranked.length > 1 && ranked[0].literals === ranked[1].literals) throw new Error('Ambiguous discovered API path templates');
+  return ranked[0]?.entry[1]?.[method.toLowerCase()];
 }
 function discoveryResult(document, args) {
   if (!args || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).some(key => !['search', 'path', 'method', 'offset', 'limit'].includes(key))) throw new Error('Invalid discovery arguments');

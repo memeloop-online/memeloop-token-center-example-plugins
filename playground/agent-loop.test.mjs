@@ -224,3 +224,52 @@ test('rejects encoded routing delimiters while preserving encoded Unicode IDs an
   await runAgentLoop(options(api));
   assert.deepEqual(dispatched, [validPath]);
 });
+
+
+test('operation matching prefers exact paths and literal specificity and denies ambiguous ties regardless of order', async () => {
+  const cases = [
+    { entries: [['/v1/{group}/{id}', { post: {} }], ['/v1/items/{id}', { post: {} }], ['/v1/items/current', { get: {} }]], path: '/v1/items/current', allowed: true },
+    { entries: [['/v1/{group}/{id}', { get: {} }], ['/v1/items/{id}', { post: {} }]], path: '/v1/items/current', allowed: false },
+    { entries: [['/v1/{group}/current', { get: {} }], ['/v1/items/{id}', { post: {} }]], path: '/v1/items/current', allowed: false },
+  ];
+  for (const scenario of cases) for (const entries of [scenario.entries, [...scenario.entries].reverse()]) {
+    let iterations = 0;
+    let dispatched = 0;
+    const api = {
+      discoverApi: async () => ({ paths: Object.fromEntries(entries) }),
+      requestApi: async request => {
+        if (request.path !== '/internal/v1/inference/chat/completions') { dispatched++; return {}; }
+        return ++iterations === 1 ? answer({ tool_calls: [call('docs', 'discover_api', {}), call('read', 'request_api', { path: scenario.path, method: 'GET' })] }) : answer({ content: 'Checked route.' });
+      },
+    };
+    await runAgentLoop(options(api));
+    assert.equal(dispatched, Number(scenario.allowed), JSON.stringify(entries));
+  }
+});
+
+test('Anthropic empty tool input normalizes null and missing inputs to native empty objects', async () => {
+  for (const input of [null, undefined]) {
+    let iterations = 0;
+    let discoveries = 0;
+    const api = {
+      discoverApi: async () => { discoveries++; return { paths: {} }; },
+      requestApi: async request => {
+        if (++iterations === 1) return { role: 'assistant', content: [{ type: 'tool_use', id: 'docs', name: 'discover_api', ...(input === undefined ? {} : { input }) }] };
+        assert.deepEqual(request.body.request.messages[1].content[0].input, {});
+        return { role: 'assistant', content: [{ type: 'text', text: 'Done.' }] };
+      },
+    };
+    await runAgentLoop({ ...options(api), protocol: 'anthropic' });
+    assert.equal(discoveries, 1);
+  }
+});
+
+test('Anthropic array and scalar tool inputs remain invalid', async () => {
+  for (const input of [[], 'invalid', 7]) {
+    const api = {
+      discoverApi: async () => { throw new Error('Must not discover'); },
+      requestApi: async () => ({ role: 'assistant', content: [{ type: 'tool_use', id: 'docs', name: 'discover_api', input }] }),
+    };
+    await assert.rejects(runAgentLoop({ ...options(api), protocol: 'anthropic' }), /Invalid Anthropic tool call/);
+  }
+});
