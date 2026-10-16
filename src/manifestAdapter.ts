@@ -7,7 +7,7 @@ export const HEALTH_INTELLIGENCE_PRESENTATION = 'health_intelligence_v1';
 export const HEALTH_INTELLIGENCE_PLUGIN_ID = 'mtc-health-intelligence';
 export const HEALTH_INTELLIGENCE_TAB_ID = 'health-and-intelligence';
 export const HEALTH_INTELLIGENCE_ENDPOINT_ID = 'health-intelligence';
-export const HEALTH_INTELLIGENCE_SERVICE_URL = 'https://memeloop-online.github.io/memeloop-token-center-health-intelligence-plugin/api/health-intelligence.json';
+export const HEALTH_INTELLIGENCE_SERVICE_URL = 'https://memeloop-online.github.io/memeloop-token-center-example-plugins/api/health-intelligence.json';
 
 export interface HealthIntelligenceServiceDataContribution {
   readonly id: typeof HEALTH_INTELLIGENCE_ENDPOINT_ID;

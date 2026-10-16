@@ -1,0 +1,35 @@
+{
+  "id": "mtc-text-playground",
+  "version": "1.0.0",
+  "wit_version": "0.2.0",
+  "wasm": null,
+  "capabilities": [],
+  "contributions": {
+    "traffic_policy": false,
+    "request_rewrite": false,
+    "configuration": null,
+    "providers": [],
+    "operator_ui": [
+      {
+        "id": "text-model",
+        "slot": "operator.sidebar.tab",
+        "category": { "id": "playground", "label": "游乐场" },
+        "route": "text-model",
+        "label": "文本模型",
+        "icon": "activity",
+        "renderer": "component_v1",
+        "module_entry": "ui/playground.mjs",
+        "component_id": "workspace"
+      },
+      {
+        "id": "open-model",
+        "slot": "operator.model-route.action",
+        "label": "在游乐场打开",
+        "icon": "activity",
+        "renderer": "component_v1",
+        "module_entry": "ui/playground.mjs",
+        "component_id": "open-model"
+      }
+    ]
+  }
+}

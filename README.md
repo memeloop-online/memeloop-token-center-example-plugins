@@ -1,3 +1,15 @@
+# MTC Example Plugins
+
+Example plugins for [MemeLoop Token Center](https://github.com/memeloop-online/memeloop-token-center).
+
+- [Text Model Playground](playground): ephemeral operator chat and the pinned official MemeLoop agent loop; CI produces a self-contained review package.
+- [Rust guest sources](plugin-sources): model-guard, preferred-account, soonest-reset.
+- [Provider manifests](plugins), including google-antigravity.
+- [Policy rewrite component](examples/plugins/policy-rewrite), with reviewed WAT and Wasm.
+- Health intelligence remains at the repository root; its existing build and release commands are preserved below.
+
+Guest crates are standalone Cargo workspaces. Build and validate them in CI. Host integration tests check out this repository at an immutable revision; update that revision explicitly when accepting a new example release. Existing OCI package names remain stable; future signatures identify this renamed repository. Historical releases keep their original signing identity.
+
 # MTC Model Health & Intelligence
 
 [中文](docs/zh-CN/README.md)
@@ -8,13 +20,13 @@ The included sources are [Codex Radar](https://codexradar.com/), [DeepSWE](https
 
 ## Install
 
-Use the OCI reference from the [latest GitHub Release](https://github.com/memeloop-online/memeloop-token-center-health-intelligence-plugin/releases). MTC's official installer verifies its signature and installs the UI module and manifest together. The `component_v1` interface uses the host's React, Fluent components, and theme tokens. Chinese and English follow the operator locale.
+Use the OCI reference from the [latest GitHub Release](https://github.com/memeloop-online/memeloop-token-center-example-plugins/releases). MTC's official installer verifies its signature and installs the UI module and manifest together. The `component_v1` interface uses the host's React, Fluent components, and theme tokens. Chinese and English follow the operator locale.
 
 Requires MTC's signed `component_v1` runtime. The exact tested host and installer are listed in [release/installer-trust.json](release/installer-trust.json).
 
 ## Data API
 
-[Public snapshot](https://memeloop-online.github.io/memeloop-token-center-health-intelligence-plugin/api/health-intelligence.json) · [JSON Schema](schemas-health-intelligence.json)
+[Public snapshot](https://memeloop-online.github.io/memeloop-token-center-example-plugins/api/health-intelligence.json) · [JSON Schema](schemas-health-intelligence.json)
 
 The installed component collects the three approved public JSON feeds through the MTC worker and host HTTP capability. Pages also publishes a reference snapshot every ten minutes. Each snapshot contains an open `sources` list. Source entries have `id`, `label`, `pageUrl`, `endpoint`, `fetchedAt`, `sourceUpdatedAt`, `maxObservationAgeSeconds`, `status`, and flat scalar `rows`.
 

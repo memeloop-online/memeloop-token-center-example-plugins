@@ -23,11 +23,12 @@
   "scripts": {
     "build": "tsc -p tsconfig.server.build.json",
     "typecheck": "tsc -p tsconfig.server.json --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --exclude 'playground/**'",
     "check": "npm run typecheck && npm test && npm run build",
     "snapshot": "node dist/server/server/generateStaticSnapshot.js site/api/health-intelligence.json",
     "serve": "node dist/server/server/run.js",
-    "verify:published": "node dist/server/server/verifyPublishedSnapshot.js"
+    "verify:published": "node dist/server/server/verifyPublishedSnapshot.js",
+    "build:playground": "node scripts/build-playground.mjs"
   },
   "dependencies": {},
   "devDependencies": {
