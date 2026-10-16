@@ -23,8 +23,10 @@ In CI, run `npm run build:playground`. It invokes pinned `esbuild@0.25.12`, bund
 After reviewing and merging the publication PR, a maintainer may manually run
 **publish signed playground plugin** (`publish-playground.yml`) on `master`.
 Pull requests never publish, sign, or deploy packages. Publication uses the same
-reviewed installer image and Cosign version in `release/installer-trust.json` as
-the existing health plugin. It builds only the external UI plugin; no core image
+reviewed installer image and Cosign version in `release/playground-installer-trust.json`.
+Publication fails closed until that file contains a reviewed compatible digest,
+source revision, verification run, and `status: ready`. The older health-plugin
+installer pin does not understand `operator.model-route.action` and cannot be reused. It builds only the external UI plugin; no core image
 is rebuilt. Registry publication needs the repository workflow's package-write
 permission and GitHub OIDC authority.
 

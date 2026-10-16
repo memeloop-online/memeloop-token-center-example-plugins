@@ -56,8 +56,10 @@ const receipt = json('plugin-install/mtc-text-playground/.mtc-oci-install.json')
 for (const [key, expected] of Object.entries({ format_version: 1, signature_policy: 'cosign-keyless', source, digest })) assert.equal(receipt[key], expected);
 const signatures = json('plugin-signature-verification.json');
 assert(Array.isArray(signatures) && signatures.some(entry => entry.critical?.image?.['docker-manifest-digest'] === digest));
-const trust = JSON.parse(readFileSync('release/installer-trust.json', 'utf8'));
+const trust = JSON.parse(readFileSync('release/playground-installer-trust.json', 'utf8'));
 assert.equal(trust.status, 'ready');
+assert.match(trust.installer_digest ?? '', /^sha256:[0-9a-f]{64}$/);
+assert.match(trust.installer_source_revision ?? '', /^[0-9a-f]{40}$/);
 const release = {
   format_version: 1, plugin_id: manifest.id, version: manifest.version,
   reference: `${source}@${digest}`, git_sha: process.env.GITHUB_SHA,
@@ -65,6 +67,8 @@ const release = {
   signature: { policy: 'cosign-keyless', issuer, identity },
   installer_reference: `${trust.installer_repository}@${trust.installer_digest}`,
   installer_source_revision: trust.installer_source_revision,
+  installer_verification_run: trust.installer_verification_run,
+  minimum_installer_contract_revision: trust.minimum_installer_contract_revision,
   module_sha256: build.module_sha256, memeloop_revision: build.memeloop_revision,
   files, installation_verified: true, manifest_verified_by: 'MTC official install-plugin-oci',
 };

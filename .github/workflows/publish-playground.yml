@@ -41,8 +41,10 @@ jobs:
         run: |
           node <<'NODE'
           const { appendFileSync, readFileSync } = require('node:fs');
-          const trust = JSON.parse(readFileSync('release/installer-trust.json', 'utf8'));
+          const trust = JSON.parse(readFileSync('release/playground-installer-trust.json', 'utf8'));
           if (trust.status !== 'ready'
+              || trust.installer_repository !== 'ghcr.io/memeloop-online/memeloop-token-center-plugin-installer'
+              || !/^https:\/\/github\.com\/memeloop-online\/memeloop-token-center\/actions\/runs\/[0-9]+$/.test(trust.installer_verification_run ?? '')
               || !/^sha256:[0-9a-f]{64}$/.test(trust.installer_digest ?? '')
               || !/^[0-9a-f]{40}$/.test(trust.installer_source_revision ?? '')
               || !/^[0-9a-f]{40}$/.test(trust.minimum_installer_contract_revision ?? '')) {
@@ -56,6 +58,19 @@ jobs:
             `COSIGN_VERSION=${trust.cosign_version}`,
           ].join('\n') + '\n');
           NODE
+      - name: Check out and verify compatible installer contract
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: memeloop-online/memeloop-token-center
+          ref: ${{ env.INSTALLER_SOURCE_REVISION }}
+          path: mtc-installer-contract
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require the model-route action installer contract
+        run: |
+          test "$INSTALLER_SOURCE_REVISION" = "$(git -C mtc-installer-contract rev-parse HEAD)"
+          git -C mtc-installer-contract merge-base --is-ancestor \
+            "$MINIMUM_INSTALLER_CONTRACT_REVISION" "$INSTALLER_SOURCE_REVISION"
       - name: Install ORAS
         uses: oras-project/setup-oras@ccb71166b124a8452d1b72c4476398a909ed4d63 # main (reviewed immutable commit)
         with:
@@ -172,6 +187,6 @@ jobs:
             ${{ runner.temp }}/plugin-package/
             ${{ runner.temp }}/plugin-install/mtc-text-playground/.mtc-oci-install.json
             dist/playground/package-evidence.json
-            release/installer-trust.json
+            release/playground-installer-trust.json
           if-no-files-found: error
           retention-days: 90

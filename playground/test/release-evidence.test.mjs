@@ -36,7 +36,7 @@ test('release verifier accepts exact signed-installed evidence and rejects indep
     json('plugin-install/mtc-text-playground/.mtc-oci-install.json', { format_version: 1, signature_policy: 'cosign-keyless', source, digest });
     json('plugin-signature-verification.json', [{ critical: { image: { 'docker-manifest-digest': digest } } }]);
     json('dist/playground/package-evidence.json', { source_revision: sha, plugin_id: packageManifest.id, version: packageManifest.version, module_sha256: hash(files['ui/playground.mjs']), files: Object.fromEntries(Object.entries(files).map(([name, bytes]) => [name, hash(bytes)])) });
-    write('release/installer-trust.json', readFileSync(join(root, 'release/installer-trust.json')));
+    json('release/playground-installer-trust.json', { status: 'ready', installer_repository: 'ghcr.io/memeloop-online/memeloop-token-center-plugin-installer', installer_digest: `sha256:${'b'.repeat(64)}`, installer_source_revision: 'c'.repeat(40) });
     const env = { ...process.env, PLUGIN_SOURCE: source, PLUGIN_DIGEST: digest, SIGNING_IDENTITY: identity, SIGNING_ISSUER: 'https://token.actions.githubusercontent.com', GITHUB_SHA: sha, GITHUB_REPOSITORY: 'memeloop-online/memeloop-token-center-example-plugins', GITHUB_RUN_ID: '1' };
     const run = overrides => spawnSync(process.execPath, [verifier, fixture], { cwd: fixture, env: { ...env, ...overrides }, encoding: 'utf8' });
     const valid = run();
