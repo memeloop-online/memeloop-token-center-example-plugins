@@ -28,7 +28,7 @@ test('release verifier accepts exact signed-installed evidence and rejects indep
     const config = Buffer.from('{"format_version":1}\n');
     write('plugin-package/config.json', config);
     const sha = 'a'.repeat(40);
-    const oci = { artifactType: 'application/vnd.memeloop.token-center.plugin.v1', config: { mediaType: 'application/vnd.memeloop.token-center.plugin.config.v1+json', digest: hash(config), size: config.length }, annotations: { 'org.opencontainers.image.revision': sha }, layers: Object.entries(files).map(([name, bytes]) => ({ annotations: { 'org.opencontainers.image.title': name }, digest: hash(bytes), size: bytes.length, mediaType: name === 'plugin.json' ? 'application/vnd.memeloop.token-center.plugin.manifest.v1+json' : 'application/vnd.memeloop.token-center.plugin.asset.v1' })) };
+    const oci = { schemaVersion: 2, mediaType: 'application/vnd.oci.image.manifest.v1+json', artifactType: 'application/vnd.memeloop.token-center.plugin.v1', config: { mediaType: 'application/vnd.memeloop.token-center.plugin.config.v1+json', digest: hash(config), size: config.length }, annotations: { 'org.opencontainers.image.revision': sha, 'org.opencontainers.image.source': 'https://github.com/memeloop-online/memeloop-token-center-example-plugins' }, layers: Object.entries(files).map(([name, bytes]) => ({ annotations: { 'org.opencontainers.image.title': name }, digest: hash(bytes), size: bytes.length, mediaType: name === 'plugin.json' ? 'application/vnd.memeloop.token-center.plugin.manifest.v1+json' : 'application/vnd.memeloop.token-center.plugin.asset.v1' })) };
     const ociBytes = Buffer.from(JSON.stringify(oci));
     const digest = hash(ociBytes);
     write('plugin-oci-manifest.json', ociBytes);
@@ -51,5 +51,22 @@ test('release verifier accepts exact signed-installed evidence and rejects indep
     write('plugin-package/ui/playground.mjs', files['ui/playground.mjs']);
     json('plugin-signature-verification.json', [{ critical: { image: { 'docker-manifest-digest': `sha256:${'0'.repeat(64)}` } } }]);
     assert.notEqual(run().status, 0);
+    // Rebind all digest evidence so these failures isolate OCI format/source
+    // validation instead of merely tripping an unrelated digest comparison.
+    for (const changed of [
+      { ...oci, schemaVersion: 1 },
+      { ...oci, mediaType: 'application/vnd.docker.distribution.manifest.v2+json' },
+      { ...oci, annotations: { ...oci.annotations, 'org.opencontainers.image.source': 'https://github.com/untrusted/repository' } },
+    ]) {
+      const changedBytes = Buffer.from(JSON.stringify(changed));
+      const changedDigest = hash(changedBytes);
+      write('plugin-oci-manifest.json', changedBytes);
+      env.PLUGIN_DIGEST = changedDigest;
+      json('plugin-installation.json', { id: packageManifest.id, version: packageManifest.version, source, digest: changedDigest });
+      json('plugin-install/mtc-text-playground/.mtc-oci-install.json', { format_version: 1, signature_policy: 'cosign-keyless', source, digest: changedDigest });
+      json('plugin-signature-verification.json', [{ critical: { image: { 'docker-manifest-digest': changedDigest } } }]);
+      assert.notEqual(run().status, 0);
+    }
+
   } finally { rmSync(fixture, { recursive: true, force: true }); }
 });

@@ -38,17 +38,30 @@ jobs:
           node --test playground/agent-loop.test.mjs playground/test/ui-unit.test.mjs playground/test/release-evidence.test.mjs
           npm run build:playground
       - name: Resolve reviewed installer trust
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          node <<'NODE'
-          const { appendFileSync, readFileSync } = require('node:fs');
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from 'node:fs';
           const trust = JSON.parse(readFileSync('release/playground-installer-trust.json', 'utf8'));
           if (trust.status !== 'ready'
+              || !/^v\d+\.\d+\.\d+-mtc\.\d+$/.test(trust.cosign_version ?? '')
               || trust.installer_repository !== 'ghcr.io/memeloop-online/memeloop-token-center-plugin-installer'
               || !/^https:\/\/github\.com\/memeloop-online\/memeloop-token-center\/actions\/runs\/[0-9]+$/.test(trust.installer_verification_run ?? '')
               || !/^sha256:[0-9a-f]{64}$/.test(trust.installer_digest ?? '')
               || !/^[0-9a-f]{40}$/.test(trust.installer_source_revision ?? '')
               || !/^[0-9a-f]{40}$/.test(trust.minimum_installer_contract_revision ?? '')) {
             throw new Error('plugin publication requires reviewed installer trust');
+          }
+          const runId = trust.installer_verification_run.split('/').at(-1);
+          const response = await fetch(`https://api.github.com/repos/memeloop-online/memeloop-token-center/actions/runs/${runId}`, {
+            headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${process.env.GH_TOKEN}`, 'X-GitHub-Api-Version': '2022-11-28' },
+            redirect: 'error', signal: AbortSignal.timeout(30000),
+          });
+          if (!response.ok) throw new Error('Cannot verify official installer CI evidence');
+          const run = await response.json();
+          if (run.conclusion !== 'success' || run.head_sha !== trust.installer_source_revision) {
+            throw new Error('Official installer verification run must succeed at the pinned source revision');
           }
           appendFileSync(process.env.GITHUB_ENV, [
             `INSTALLER_SOURCE=${trust.installer_repository}`,
