@@ -1,6 +1,6 @@
 # Text Model Playground
 
-An optional MemeLoop Token Center plugin. It adds **Playground → Text models** and an **Open in playground** action beside each model route, using the host's React, Fluent UI and current theme.
+An optional MemeLoop Token Center plugin. It adds **Playground → Text models** and an **Open in playground** action beside each model route, using the host's React and Fluent UI components.
 
 The signed-in operator can search enabled OpenAI and Anthropic text routes, select a model and an existing billing key, and send a temporary conversation. The host uses the current Operator credential and tenant; listing billing keys requires `keys:read`, and inference requires `keys:write` for the selected key. The key's normal model grants, limits, balance and billing apply. No new API key is created or exposed. Refresh discards the browser conversation; normal request and billing records remain.
 
