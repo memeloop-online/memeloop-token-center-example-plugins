@@ -111,7 +111,8 @@ test('actual plugin mounts, sends, reviews, stops and navigates in Chromium',{ti
     const rect=surface.getBoundingClientRect(),veil=backdrop.getBoundingClientRect();
     return effectiveOpacity(surface)===1&&effectiveOpacity(backdrop)===1&&
      alpha(getComputedStyle(surface).backgroundColor)===1&&alpha(getComputedStyle(backdrop).backgroundColor)>0&&
-     veil.left<=0&&veil.top<=0&&veil.right>=innerWidth&&veil.bottom>=innerHeight&&
+     // Fixed content layers cover the layout viewport; innerWidth also counts the scrollbar gutter.
+     veil.left<=0&&veil.top<=0&&veil.right>=document.documentElement.clientWidth&&veil.bottom>=document.documentElement.clientHeight&&
      surface.contains(document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2));
    });
    assert.equal(await dialog.getAttribute('aria-modal'),'true');
@@ -120,6 +121,9 @@ test('actual plugin mounts, sends, reviews, stops and navigates in Chromium',{ti
     const layers=await dialog.evaluate(surface=>({
      surface:{opacity:getComputedStyle(surface).opacity,background:getComputedStyle(surface).backgroundColor},
      backdrop:{opacity:getComputedStyle(document.querySelector('.fui-DialogSurface__backdrop')).opacity,background:getComputedStyle(document.querySelector('.fui-DialogSurface__backdrop')).backgroundColor},
+     viewport:{width:document.documentElement.clientWidth,height:document.documentElement.clientHeight,innerWidth,innerHeight},
+     surfaceRect:surface.getBoundingClientRect().toJSON(),
+     backdropRect:document.querySelector('.fui-DialogSurface__backdrop').getBoundingClientRect().toJSON(),
      reducedMotion:matchMedia('(prefers-reduced-motion: reduce)').matches
     }));
     writeFileSync(artifactDir+'/mutation-review-layers.json',JSON.stringify(layers,null,2));
@@ -159,7 +163,15 @@ test('actual plugin mounts, sends, reviews, stops and navigates in Chromium',{ti
     alerts:[...document.querySelectorAll('[role=alert]')].map(el=>el.innerText),
     text:document.body.innerText.slice(0,8000),
     selectedModel:document.querySelector('#mtp-model')?.value,
-    selectedKey:document.querySelector('#mtp-key')?.value
+    selectedKey:document.querySelector('#mtp-key')?.value,
+    dialogLayers:{
+     viewport:{width:document.documentElement.clientWidth,height:document.documentElement.clientHeight,innerWidth,innerHeight},
+     layers:[...document.querySelectorAll('[role=dialog],.fui-DialogSurface__backdrop')].map(el=>({
+      role:el.getAttribute('role'),className:el.className,opacity:getComputedStyle(el).opacity,
+      background:getComputedStyle(el).backgroundColor,rect:el.getBoundingClientRect().toJSON(),
+      ancestorOpacities:Array.from((function*(node){while(node){yield getComputedStyle(node).opacity;node=node.parentElement;}})(el))
+     }))
+    }
    })).catch(()=>({pageUnavailable:true}));
    writeFileSync(artifactDir+'/failure.json',JSON.stringify({...diagnostic,pageErrors:errors,failure:String(error)},null,2));
   }
