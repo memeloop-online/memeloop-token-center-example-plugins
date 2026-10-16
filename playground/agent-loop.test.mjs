@@ -201,3 +201,26 @@ test('Anthropic text-only mode has native plain Messages request and no tools', 
   assert.equal(JSON.stringify(result).includes('private-opaque'), false);
   assert.deepEqual(result.messages.at(-1), { role: 'assistant', content: 'Text response.' });
 });
+
+
+test('rejects encoded routing delimiters while preserving encoded Unicode IDs and query values', async () => {
+  const dispatched = [];
+  let iteration = 0;
+  const validPath = '/v1/items/%E4%B8%AD/details?search=a%2Fb%3Fc%23d%25&label=hello%20world';
+  const api = {
+    discoverApi: async () => ({ paths: { '/v1/items/{id}/details': { get: {} } } }),
+    requestApi: async request => {
+      if (request.path !== '/internal/v1/inference/chat/completions') { dispatched.push(request.path); return { ok: true }; }
+      return ++iteration === 1 ? answer({ tool_calls: [
+        call('docs', 'discover_api', {}),
+        call('encoded-slash', 'request_api', { path: '/v1/items/a%2Fdetails', method: 'GET' }),
+        call('nested-encoding', 'request_api', { path: '/v1/items/a%252F/details', method: 'GET' }),
+        call('encoded-question', 'request_api', { path: '/v1/items/a%3F/details', method: 'GET' }),
+        call('canonical', 'request_api', { path: '/v1/items/%2e%2e/details', method: 'GET' }),
+        call('legitimate-query', 'request_api', { path: validPath, method: 'GET' }),
+      ] }) : answer({ content: 'Checked paths.' });
+    },
+  };
+  await runAgentLoop(options(api));
+  assert.deepEqual(dispatched, [validPath]);
+});

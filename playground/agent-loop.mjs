@@ -99,13 +99,20 @@ function discoveryResult(document, args) {
 function validateRequest(args, document) {
   if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('Tool arguments must be an object');
   if (typeof args.path !== 'string' || !/^\/(?!\/)/.test(args.path) || /[\\#\x00-\x20]/.test(args.path)) throw new Error('A same-origin absolute API path is required');
+  const pathname = args.path.split('?')[0];
+  // Match exactly the routing structure dispatched to the host. Encoded routing
+  // delimiters (including nested percent encodings) must never create segments
+  // only after decoding. Query values do not participate in operation matching.
+  if (/%(?:2f|5c|3f|23|25)/i.test(pathname)) throw new Error('Encoded path delimiters are not allowed');
+  const canonical = new URL(args.path, 'https://operator.invalid');
+  if (canonical.origin !== 'https://operator.invalid' || canonical.pathname !== pathname) throw new Error('Non-canonical API path');
   let decoded;
-  try { decoded = decodeURIComponent(args.path); } catch { throw new Error('Invalid path encoding'); }
+  try { decoded = decodeURIComponent(pathname); } catch { throw new Error('Invalid path encoding'); }
   if (decoded.includes('..') || decoded.includes('//') || decoded.includes('\\') || /[\x00-\x20]/.test(decoded)) throw new Error('Invalid API path');
   if (SECRET_ROUTE.test(decoded)) throw new Error('This endpoint is unavailable to the agent; use the Token Center UI');
   const method = String(args.method ?? '').toUpperCase();
   if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) throw new Error('Unsupported API method');
-  if (!operationFor(document, decoded, method)) throw new Error('Operation is absent from discovered API');
+  if (!operationFor(document, pathname, method)) throw new Error('Operation is absent from discovered API');
   if (args.body !== undefined && (!args.body || typeof args.body !== 'object' || Array.isArray(args.body))) throw new Error('Request body must be an object');
   if (Object.keys(args).some(key => !['path', 'method', 'body'].includes(key))) throw new Error('Unexpected request argument');
   return { path: args.path, method, ...(args.body === undefined ? {} : { body: args.body }) };
