@@ -2,9 +2,9 @@
 
 An optional MemeLoop Token Center plugin. It adds **Playground → Text models** and an **Open in playground** action beside each model route, using the host's React, Fluent UI and current theme.
 
-The signed-in operator can choose an authorized tenant and model, adjust inference parameters and compare temporary chat sessions. Each model route carries its own reasoning level and system instruction. Browser state is ephemeral: refresh discards conversations. Inference uses the operator's existing session and tenant authority; no new API key is created or exposed.
+The signed-in operator can search enabled OpenAI and Anthropic text routes, select a model and an existing billing key, and send a temporary conversation. The host uses the current Operator credential and tenant; listing billing keys requires `keys:read`, and inference requires `keys:write` for the selected key. The key's normal model grants, limits, balance and billing apply. No new API key is created or exposed. Refresh discards the browser conversation; normal request and billing records remain.
 
-Agent mode runs the pinned official MemeLoop browser orchestration script with a bounded adapter. It discovers the host API schema, may read allowed resources and asks for explicit confirmation before each change. Secret, credential and export routes are denied. Cancellation stops waiting and further loop iterations; an already accepted mutation cannot be rolled back.
+Agent mode runs the pinned official MemeLoop browser orchestration script with a bounded adapter. It discovers the host API schema, may read allowed resources and asks for explicit confirmation before each change. Secret, credential and export routes are denied. Turn off product tools to try ordinary text chat, including models without tool support. Cancellation stops waiting and further loop iterations; an already accepted mutation cannot be rolled back, and an upstream request may continue to incur cost.
 
 ## Review package
 
