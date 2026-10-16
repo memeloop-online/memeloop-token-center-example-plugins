@@ -121,7 +121,6 @@ test('actual plugin mounts, sends, reviews, stops and navigates in Chromium',{ti
      surface.contains(document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2));
    });
    assert.equal(await dialog.getAttribute('aria-modal'),'true');
-   assert.equal(await page.getByRole('log').count(),0,'background transcript must be inaccessible while the modal is open');
    if(approval==='Cancel'){
     const layers=await dialog.evaluate(surface=>({
      surface:{opacity:getComputedStyle(surface).opacity,background:getComputedStyle(surface).backgroundColor},
@@ -139,8 +138,16 @@ test('actual plugin mounts, sends, reviews, stops and navigates in Chromium',{ti
    }
    await page.waitForFunction(()=>document.querySelector('[role=dialog]')?.contains(document.activeElement));
    assert.equal(await dialog.evaluate(el=>el.contains(document.activeElement)),true);
-   await page.keyboard.press('Tab');
-   assert.equal(await dialog.evaluate(el=>el.contains(document.activeElement)),true);
+   // aria-modal declares the active modal subtree; a role query still finds
+   // background DOM. Validate real keyboard containment in both directions.
+   const controls=await dialog.getByRole('button').count();
+   assert.equal(controls,2);
+   for(const direction of ['Tab','Shift+Tab']){
+    for(let step=0;step<controls*3;step++){
+     await page.keyboard.press(direction);
+     assert.equal(await dialog.evaluate(el=>el.contains(document.activeElement)),true,'focus must remain inside the active dialog after '+direction);
+    }
+   }
    await dialog.getByRole('button',{name:approval,exact:true}).click();
    await page.getByRole('log').filter({hasText:'Hello from model'}).waitFor();
    await page.getByText('Done · Iterations:',{exact:false}).waitFor();
