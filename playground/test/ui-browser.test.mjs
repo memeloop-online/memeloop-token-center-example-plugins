@@ -50,7 +50,7 @@ test('actual plugin mounts, sends, reviews, stops and navigates in Chromium',{ti
  mkdirSync(artifactDir,{recursive:true});
  try{
   browser=await chromium.launch({headless:true});
-  page=await browser.newPage({viewport:{width:390,height:844}});
+  page=await browser.newPage({viewport:{width:390,height:844},reducedMotion:'reduce'});
   page.on('pageerror',error=>errors.push(error.message));
   const url='http://127.0.0.1:'+server.address().port;
   const choose=async()=>{await page.locator('#mtp-model').selectOption('route-1');await page.locator('#mtp-key').selectOption('key-1');};
@@ -61,7 +61,7 @@ test('actual plugin mounts, sends, reviews, stops and navigates in Chromium',{ti
   assert.equal(await page.evaluate(()=>window.responses.at(-1)?.choices[0]?.message.content),'Hello from model');
   assert.equal(await page.getByText('An error occurred:',{exact:false}).count(),0);
   mkdirSync(root+'dist/playground-browser',{recursive:true});
-  await page.screenshot({path:root+'dist/playground-browser/mobile-chat.png',fullPage:true});
+  await page.screenshot({path:root+'dist/playground-browser/mobile-chat.png',fullPage:true,animations:'disabled'});
   assert.equal(await page.evaluate(()=>window.requests.find(r=>r.body?.key_id)?.body.key_id),'key-1');
   await page.getByRole('button',{name:'Open in Playground'}).click();
   assert.equal(await page.evaluate(()=>window.navigations[0][1].modelRoute.public_model),'text-model');
@@ -84,7 +84,47 @@ test('actual plugin mounts, sends, reviews, stops and navigates in Chromium',{ti
   for(const approval of ['Cancel','Approve']){
    await page.goto(url+'?mode=mutation');await choose();await send();
    const dialog=page.getByRole('dialog');await dialog.waitFor();
-   if(approval==='Cancel')await page.screenshot({path:root+'dist/playground-browser/mutation-review.png',fullPage:true});
+   // Visibility can become true during Fluent's entrance fade. Await finite
+   // motion completion, then check the actual composited layers before capture.
+   await dialog.evaluate(async surface=>{
+    const backdrop=document.querySelector('.fui-DialogSurface__backdrop');
+    const animations=document.getAnimations().filter(animation=>{
+     const target=animation.effect?.target;
+     return target instanceof Element&&animation.effect.getComputedTiming().iterations!==Infinity&&
+      (surface.contains(target)||target.contains(surface)||target===backdrop||backdrop?.contains(target));
+    });
+    await Promise.all(animations.map(animation=>animation.finished.catch(()=>{})));
+   });
+   await page.waitForFunction(()=>{
+    const surface=document.querySelector('[role=dialog]');
+    const backdrop=document.querySelector('.fui-DialogSurface__backdrop');
+    if(!surface||!backdrop)return false;
+    const effectiveOpacity=element=>{
+     let opacity=1;
+     for(let node=element;node;node=node.parentElement)opacity*=Number(getComputedStyle(node).opacity);
+     return opacity;
+    };
+    const alpha=color=>{
+     const rgba=color.match(/^rgba\((?:[^,]+,){3}\s*([\d.]+)\)$/);
+     return rgba?Number(rgba[1]):color.startsWith('rgb(')?1:0;
+    };
+    const rect=surface.getBoundingClientRect(),veil=backdrop.getBoundingClientRect();
+    return effectiveOpacity(surface)===1&&effectiveOpacity(backdrop)===1&&
+     alpha(getComputedStyle(surface).backgroundColor)===1&&alpha(getComputedStyle(backdrop).backgroundColor)>0&&
+     veil.left<=0&&veil.top<=0&&veil.right>=innerWidth&&veil.bottom>=innerHeight&&
+     surface.contains(document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2));
+   });
+   assert.equal(await dialog.getAttribute('aria-modal'),'true');
+   assert.equal(await page.getByRole('log').count(),0,'background transcript must be inaccessible while the modal is open');
+   if(approval==='Cancel'){
+    const layers=await dialog.evaluate(surface=>({
+     surface:{opacity:getComputedStyle(surface).opacity,background:getComputedStyle(surface).backgroundColor},
+     backdrop:{opacity:getComputedStyle(document.querySelector('.fui-DialogSurface__backdrop')).opacity,background:getComputedStyle(document.querySelector('.fui-DialogSurface__backdrop')).backgroundColor},
+     reducedMotion:matchMedia('(prefers-reduced-motion: reduce)').matches
+    }));
+    writeFileSync(artifactDir+'/mutation-review-layers.json',JSON.stringify(layers,null,2));
+    await page.screenshot({path:artifactDir+'/mutation-review.png',fullPage:true,animations:'disabled'});
+   }
    await page.waitForFunction(()=>document.querySelector('[role=dialog]')?.contains(document.activeElement));
    assert.equal(await dialog.evaluate(el=>el.contains(document.activeElement)),true);
    await page.keyboard.press('Tab');
@@ -109,7 +149,7 @@ test('actual plugin mounts, sends, reviews, stops and navigates in Chromium',{ti
   assert.deepEqual(errors,[]);
  }catch(error){
   if(page){
-   await page.screenshot({path:artifactDir+'/failure.png',fullPage:true}).catch(()=>{});
+   await page.screenshot({path:artifactDir+'/failure.png',fullPage:true,animations:'disabled'}).catch(()=>{});
    const diagnostic=await page.evaluate(()=>({
     // The page only runs the deterministic mock above. Record summaries, never raw bodies.
     mode:new URLSearchParams(location.search).get('mode'),
