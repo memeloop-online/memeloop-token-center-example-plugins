@@ -109,10 +109,15 @@ test('actual plugin mounts, sends, reviews, stops and navigates in Chromium',{ti
      return rgba?Number(rgba[1]):color.startsWith('rgb(')?1:0;
     };
     const rect=surface.getBoundingClientRect(),veil=backdrop.getBoundingClientRect();
+    const app=document.getElementById('root')?.getBoundingClientRect();
+    if(!app)return false;
+    const visibleApp={left:Math.max(0,app.left),top:Math.max(0,app.top),right:Math.min(innerWidth,app.right),bottom:Math.min(innerHeight,app.bottom)};
     return effectiveOpacity(surface)===1&&effectiveOpacity(backdrop)===1&&
      alpha(getComputedStyle(surface).backgroundColor)===1&&alpha(getComputedStyle(backdrop).backgroundColor)>0&&
-     // Fixed content layers cover the layout viewport; innerWidth also counts the scrollbar gutter.
-     veil.left<=0&&veil.top<=0&&veil.right>=document.documentElement.clientWidth&&veil.bottom>=document.documentElement.clientHeight&&
+     // Fluent body locking reserves a scrollbar gutter even with overlay scrollbars.
+     // Require coverage of every visible app pixel, excluding only space outside its root.
+     visibleApp.right>visibleApp.left&&visibleApp.bottom>visibleApp.top&&
+     veil.left<=visibleApp.left&&veil.top<=visibleApp.top&&veil.right>=visibleApp.right&&veil.bottom>=visibleApp.bottom&&
      surface.contains(document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2));
    });
    assert.equal(await dialog.getAttribute('aria-modal'),'true');
@@ -122,6 +127,9 @@ test('actual plugin mounts, sends, reviews, stops and navigates in Chromium',{ti
      surface:{opacity:getComputedStyle(surface).opacity,background:getComputedStyle(surface).backgroundColor},
      backdrop:{opacity:getComputedStyle(document.querySelector('.fui-DialogSurface__backdrop')).opacity,background:getComputedStyle(document.querySelector('.fui-DialogSurface__backdrop')).backgroundColor},
      viewport:{width:document.documentElement.clientWidth,height:document.documentElement.clientHeight,innerWidth,innerHeight},
+     appRootRect:document.getElementById('root').getBoundingClientRect().toJSON(),
+     bodyRect:document.body.getBoundingClientRect().toJSON(),
+     bodyStyle:{paddingRight:getComputedStyle(document.body).paddingRight,marginRight:getComputedStyle(document.body).marginRight,overflow:getComputedStyle(document.body).overflow},
      surfaceRect:surface.getBoundingClientRect().toJSON(),
      backdropRect:document.querySelector('.fui-DialogSurface__backdrop').getBoundingClientRect().toJSON(),
      reducedMotion:matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -165,6 +173,9 @@ test('actual plugin mounts, sends, reviews, stops and navigates in Chromium',{ti
     selectedModel:document.querySelector('#mtp-model')?.value,
     selectedKey:document.querySelector('#mtp-key')?.value,
     dialogLayers:{
+     appRootRect:document.getElementById('root')?.getBoundingClientRect().toJSON(),
+     bodyRect:document.body.getBoundingClientRect().toJSON(),
+     bodyStyle:{paddingRight:getComputedStyle(document.body).paddingRight,marginRight:getComputedStyle(document.body).marginRight,overflow:getComputedStyle(document.body).overflow},
      viewport:{width:document.documentElement.clientWidth,height:document.documentElement.clientHeight,innerWidth,innerHeight},
      layers:[...document.querySelectorAll('[role=dialog],.fui-DialogSurface__backdrop')].map(el=>({
       role:el.getAttribute('role'),className:el.className,opacity:getComputedStyle(el).opacity,
