@@ -269,10 +269,11 @@ async fn policy_large_inputs_and_real_model_guard_chain() {
             .apply_traffic_with_config(context(), &request, &blocked_config)
             .unwrap();
         assert!(!blocked.allow);
-        assert_eq!(
-            blocked.denied_by_plugin_id.as_deref(),
-            Some("mtc-model-guard")
-        );
+        // Public Debug contains only host-owned diagnostic fields; no guest
+        // reason/body is retained. Check attribution without private access.
+        let diagnostic = format!("{blocked:?}");
+        assert!(diagnostic.contains("mtc-model-guard"));
+        assert!(diagnostic.contains("policy_denied"));
     }
     let mut other_tenant = context();
     other_tenant.tenant_id = "independent-small-tenant".into();
