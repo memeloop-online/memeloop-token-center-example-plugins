@@ -345,4 +345,44 @@ async fn published_pre_growth_component_fails_large_default_off_input() {
     assert!(decision.allow);
     assert!(decision.request_json.is_none());
     assert!(decision.model.is_none());
+
+    use memeloop_token_center::plugin::lifecycle::{
+        PluginGrant, RuntimeRevisions, manifest_digest,
+    };
+    let identities = before_growth.package_identities();
+    let grants = before_growth
+        .manifests()
+        .into_iter()
+        .map(|manifest| {
+            let grant = PluginGrant {
+                version: manifest.version.clone(),
+                capabilities: manifest.capabilities.clone(),
+                manifest_digest: manifest_digest(&manifest).unwrap(),
+                identity: identities[&manifest.id].clone(),
+            };
+            (manifest.id, vec![grant])
+        })
+        .collect();
+    let revisions = RuntimeRevisions::new(before_growth, grants).unwrap();
+    let snapshot = revisions.pin().unwrap();
+    for _ in 0..3 {
+        let failed = snapshot
+            .apply_traffic_with_config(context(), &request, &BTreeMap::new())
+            .unwrap();
+        assert!(!failed.allow);
+        let diagnostic = format!("{failed:?}");
+        assert!(diagnostic.contains("example-policy-rewrite"));
+        assert!(diagnostic.contains("policy_execution_failed"));
+    }
+    let mut another_tenant = context();
+    another_tenant.tenant_id = "small-independent-tenant".into();
+    let small = json!({"model":"requested-model", "input":"small"});
+    let blocked = snapshot
+        .apply_traffic_with_config(another_tenant.clone(), &small, &BTreeMap::new())
+        .unwrap();
+    assert!(!blocked.allow);
+    let diagnostic = format!("{blocked:?}");
+    assert!(diagnostic.contains("example-policy-rewrite"));
+    assert!(diagnostic.contains("policy_circuit_open"));
+    assert!(fixed.apply_traffic(another_tenant, &small).unwrap().allow);
 }
