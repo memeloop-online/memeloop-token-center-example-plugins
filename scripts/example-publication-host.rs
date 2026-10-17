@@ -346,24 +346,7 @@ async fn published_pre_growth_component_fails_large_default_off_input() {
     assert!(decision.request_json.is_none());
     assert!(decision.model.is_none());
 
-    use memeloop_token_center::plugin::lifecycle::{
-        PluginGrant, RuntimeRevisions, manifest_digest,
-    };
-    let identities = before_growth.package_identities();
-    let grants = before_growth
-        .manifests()
-        .into_iter()
-        .map(|manifest| {
-            let grant = PluginGrant {
-                version: manifest.version.clone(),
-                capabilities: manifest.capabilities.clone(),
-                manifest_digest: manifest_digest(&manifest).unwrap(),
-                identity: identities[&manifest.id].clone(),
-            };
-            (manifest.id, vec![grant])
-        })
-        .collect();
-    let revisions = RuntimeRevisions::new(before_growth, grants).unwrap();
+    let revisions = component_revisions(before_growth);
     let snapshot = revisions.pin().unwrap();
     for _ in 0..3 {
         let failed = snapshot
@@ -384,5 +367,50 @@ async fn published_pre_growth_component_fails_large_default_off_input() {
     let diagnostic = format!("{blocked:?}");
     assert!(diagnostic.contains("example-policy-rewrite"));
     assert!(diagnostic.contains("policy_circuit_open"));
-    assert!(fixed.apply_traffic(another_tenant, &small).unwrap().allow);
+    assert!(
+        fixed
+            .apply_traffic(another_tenant.clone(), &small)
+            .unwrap()
+            .allow
+    );
+    let (_fixed_directory, fixed_runtime) = runtime("example-policy-rewrite").await;
+    let fixed_revisions = component_revisions(fixed_runtime);
+    let fixed_snapshot = fixed_revisions.pin().unwrap();
+    for _ in 0..3 {
+        assert!(
+            fixed_snapshot
+                .apply_traffic_with_config(context(), &request, &BTreeMap::new())
+                .unwrap()
+                .allow
+        );
+    }
+    assert!(
+        fixed_snapshot
+            .apply_traffic_with_config(another_tenant, &small, &BTreeMap::new())
+            .unwrap()
+            .allow
+    );
+}
+
+fn component_revisions(
+    runtime: PluginRuntime,
+) -> memeloop_token_center::plugin::lifecycle::RuntimeRevisions {
+    use memeloop_token_center::plugin::lifecycle::{
+        PluginGrant, RuntimeRevisions, manifest_digest,
+    };
+    let identities = runtime.package_identities();
+    let grants = runtime
+        .manifests()
+        .into_iter()
+        .map(|manifest| {
+            let grant = PluginGrant {
+                version: manifest.version.clone(),
+                capabilities: manifest.capabilities.clone(),
+                manifest_digest: manifest_digest(&manifest).unwrap(),
+                identity: identities[&manifest.id].clone(),
+            };
+            (manifest.id, vec![grant])
+        })
+        .collect();
+    RuntimeRevisions::new(runtime, grants).unwrap()
 }
