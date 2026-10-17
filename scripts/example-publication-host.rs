@@ -25,6 +25,14 @@ async fn runtime(id: &str) -> (tempfile::TempDir, PluginRuntime) {
     if manifest.wasm.is_some() {
         fs::copy(source.join("plugin.wasm"), package.join("plugin.wasm")).unwrap();
     }
+    if id == "example-policy-rewrite" {
+        // Synthetic host-owned lifecycle fixture receipt, not a signature or
+        // installation claim. Never copied into assembled publication packages.
+        fs::write(package.join(".mtc-oci-install.json"), serde_json::to_vec(&json!({
+            "format_version":1, "source":"registry.invalid/ci-only-large-input-fixture",
+            "digest":format!("sha256:{}", "a".repeat(64)), "signature_policy":"cosign-public-key"
+        })).unwrap()).unwrap();
+    }
     let database = Database::connect(&format!(
         "sqlite://{}?mode=rwc",
         directory.path().join("host.db").display()
@@ -208,4 +216,209 @@ async fn policy_exact_component_defaults_to_no_rewrite_and_preserves_upstream_er
             "upstream status {status} must not become a successful response"
         );
     }
+}
+
+// Request size includes JSON escaping, not just the source string length. Every
+// host invocation gets a fresh guest instance; large calls must not exhaust a
+// previous invocation's bump allocator or alter a later tenant's small request.
+#[tokio::test]
+async fn policy_large_inputs_and_real_model_guard_chain() {
+    let (directory, policy) = runtime("example-policy-rewrite").await;
+    let guard = PathBuf::from(std::env::var("MTC_EXAMPLE_MODEL_GUARD_PACKAGE").unwrap());
+    let root = directory.path().join("plugins");
+    let package = root.join("mtc-model-guard");
+    fs::create_dir_all(&package).unwrap();
+    for name in ["plugin.json", "plugin.wasm"] {
+        fs::copy(guard.join(name), package.join(name)).unwrap();
+    }
+    let database = Database::connect(&format!(
+        "sqlite://{}?mode=rwc",
+        directory.path().join("chain.db").display()
+    ))
+    .await
+    .unwrap();
+    let chain = PluginRuntime::load(root.to_str(), database).unwrap();
+    assert_eq!(chain.manifests().len(), 2);
+    let guard_config = BTreeMap::from([
+        ("example-policy-rewrite".into(), json!({"enabled":false})),
+        ("mtc-model-guard".into(), json!({"blocked_models":[]})),
+    ]);
+    for size in [64 * 1024, 256 * 1024, 1024 * 1024] {
+        let request = json!({"model":"requested-model", "input":"\0\"\\".repeat(size / 3)});
+        assert!(serde_json::to_vec(&request).unwrap().len() >= size);
+        let disabled = policy.apply_traffic(context(), &request).unwrap();
+        assert!(disabled.allow);
+        assert!(disabled.model.is_none());
+        assert!(disabled.request_json.is_none());
+        let enabled = policy
+            .apply_traffic_with_config(
+                context(),
+                &request,
+                &BTreeMap::from([("example-policy-rewrite".into(), json!({"enabled":true}))]),
+            )
+            .unwrap();
+        assert!(enabled.allow);
+        assert_eq!(enabled.model.as_deref(), Some("example-rewritten"));
+        assert_eq!(
+            enabled.request_json.as_ref().unwrap(),
+            &json!({"model":"example-rewritten", "messages":[{"role":"user", "content":"rewritten by plugin"}]})
+        );
+        let allowed = chain
+            .apply_traffic_with_config(context(), &request, &guard_config)
+            .unwrap();
+        assert!(allowed.allow);
+        assert!(allowed.request_json.is_none());
+        let mut enabled_chain_config = guard_config.clone();
+        enabled_chain_config.insert("example-policy-rewrite".into(), json!({"enabled":true}));
+        let rewritten_chain = chain
+            .apply_traffic_with_config(context(), &request, &enabled_chain_config)
+            .unwrap();
+        assert!(rewritten_chain.allow);
+        assert_eq!(rewritten_chain.model.as_deref(), Some("example-rewritten"));
+        assert_eq!(rewritten_chain.request_json, enabled.request_json);
+        let mut blocked_config = guard_config.clone();
+        blocked_config.insert(
+            "mtc-model-guard".into(),
+            json!({"blocked_models":["requested-model"]}),
+        );
+        let blocked = chain
+            .apply_traffic_with_config(context(), &request, &blocked_config)
+            .unwrap();
+        assert!(!blocked.allow);
+        // Public Debug contains only host-owned diagnostic fields; no guest
+        // reason/body is retained. Check attribution without private access.
+        let diagnostic = format!("{blocked:?}");
+        assert!(diagnostic.contains("mtc-model-guard"));
+        assert!(diagnostic.contains("policy_denied"));
+    }
+    // Stay below the explicit 16 MiB total-input contract being introduced in
+    // the host: allow room for all context strings and the largest guard config.
+    let near_limit =
+        json!({"model":"requested-model", "input":"x".repeat(16 * 1024 * 1024 - 64 * 1024)});
+    let mut large_config = guard_config.clone();
+    large_config.insert(
+        "mtc-model-guard".into(),
+        json!({"blocked_models":
+            (0..128).map(|index| format!("{index:03}{}", "x".repeat(253))).collect::<Vec<_>>()
+        }),
+    );
+    assert!(
+        chain
+            .apply_traffic_with_config(context(), &near_limit, &large_config)
+            .unwrap()
+            .allow
+    );
+    let mut other_tenant = context();
+    other_tenant.tenant_id = "independent-small-tenant".into();
+    assert!(
+        chain
+            .apply_traffic_with_config(
+                other_tenant,
+                &json!({"model":"requested-model","messages":[]}),
+                &guard_config
+            )
+            .unwrap()
+            .allow
+    );
+}
+
+// Reproduce the exact previously published component failure in CI on both
+// immutable hosts. This is a synthetic package regression, not live attribution.
+#[tokio::test]
+async fn published_pre_growth_component_fails_large_default_off_input() {
+    let (directory, fixed) = runtime("example-policy-rewrite").await;
+    let root = directory.path().join("plugins");
+    fs::copy(
+        std::env::var("MTC_EXAMPLE_PRE_GROWTH_POLICY_COMPONENT").unwrap(),
+        root.join("example-policy-rewrite/plugin.wasm"),
+    )
+    .unwrap();
+    let database = Database::connect(&format!(
+        "sqlite://{}?mode=rwc",
+        directory.path().join("old.db").display()
+    ))
+    .await
+    .unwrap();
+    let before_growth = PluginRuntime::load(root.to_str(), database).unwrap();
+    let request = json!({"model":"requested-model", "input":"x".repeat(64 * 1024)});
+    let failure = before_growth
+        .apply_traffic(context(), &request)
+        .unwrap_err();
+    assert!(
+        failure
+            .to_string()
+            .contains("plugin example-policy-rewrite execution failed")
+    );
+    let decision = fixed.apply_traffic(context(), &request).unwrap();
+    assert!(decision.allow);
+    assert!(decision.request_json.is_none());
+    assert!(decision.model.is_none());
+
+    let revisions = component_revisions(before_growth);
+    let snapshot = revisions.pin().unwrap();
+    for _ in 0..3 {
+        let failed = snapshot
+            .apply_traffic_with_config(context(), &request, &BTreeMap::new())
+            .unwrap();
+        assert!(!failed.allow);
+        let diagnostic = format!("{failed:?}");
+        assert!(diagnostic.contains("example-policy-rewrite"));
+        assert!(diagnostic.contains("policy_execution_failed"));
+    }
+    let mut another_tenant = context();
+    another_tenant.tenant_id = "small-independent-tenant".into();
+    let small = json!({"model":"requested-model", "input":"small"});
+    let blocked = snapshot
+        .apply_traffic_with_config(another_tenant.clone(), &small, &BTreeMap::new())
+        .unwrap();
+    assert!(!blocked.allow);
+    let diagnostic = format!("{blocked:?}");
+    assert!(diagnostic.contains("example-policy-rewrite"));
+    assert!(diagnostic.contains("policy_circuit_open"));
+    assert!(
+        fixed
+            .apply_traffic(another_tenant.clone(), &small)
+            .unwrap()
+            .allow
+    );
+    let (_fixed_directory, fixed_runtime) = runtime("example-policy-rewrite").await;
+    let fixed_revisions = component_revisions(fixed_runtime);
+    let fixed_snapshot = fixed_revisions.pin().unwrap();
+    for _ in 0..3 {
+        assert!(
+            fixed_snapshot
+                .apply_traffic_with_config(context(), &request, &BTreeMap::new())
+                .unwrap()
+                .allow
+        );
+    }
+    assert!(
+        fixed_snapshot
+            .apply_traffic_with_config(another_tenant, &small, &BTreeMap::new())
+            .unwrap()
+            .allow
+    );
+}
+
+fn component_revisions(
+    runtime: PluginRuntime,
+) -> memeloop_token_center::plugin::lifecycle::RuntimeRevisions {
+    use memeloop_token_center::plugin::lifecycle::{
+        PluginGrant, RuntimeRevisions, manifest_digest,
+    };
+    let identities = runtime.package_identities();
+    let grants = runtime
+        .manifests()
+        .into_iter()
+        .map(|manifest| {
+            let grant = PluginGrant {
+                version: manifest.version.clone(),
+                capabilities: manifest.capabilities.clone(),
+                manifest_digest: manifest_digest(&manifest).unwrap(),
+                identity: identities[&manifest.id].clone(),
+            };
+            (manifest.id, vec![grant])
+        })
+        .collect();
+    RuntimeRevisions::new(runtime, grants).unwrap()
 }

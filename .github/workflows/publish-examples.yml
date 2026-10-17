@@ -99,6 +99,8 @@ jobs:
           echo "$RUNNER_TEMP/example-tools" >> "$GITHUB_PATH"
       - name: Test and build the exact quota-routing guest
         run: |
+          cargo build --locked --release --target wasm32-unknown-unknown --manifest-path plugin-sources/model-guard/Cargo.toml
+          wasm-tools component new plugin-sources/model-guard/target/wasm32-unknown-unknown/release/mtc_model_guard.wasm -o "$RUNNER_TEMP/example-components/model-guard.wasm"
           cargo test --locked --manifest-path plugin-sources/soonest-reset/Cargo.toml
           cargo build --locked --release --target wasm32-unknown-unknown --manifest-path plugin-sources/soonest-reset/Cargo.toml
           wasm-tools component new plugin-sources/soonest-reset/target/wasm32-unknown-unknown/release/mtc_soonest_reset.wasm \
@@ -114,8 +116,12 @@ jobs:
           wasm-tools component new "$RUNNER_TEMP/example-components/policy-rewrite.embedded.wasm" \
             -o "$RUNNER_TEMP/example-components/policy-rewrite.wasm"
           wasm-tools validate --features component-model "$RUNNER_TEMP/example-components/policy-rewrite.wasm"
-          cmp examples/plugins/policy-rewrite/plugin.wasm "$RUNNER_TEMP/example-components/policy-rewrite.wasm"
           node scripts/example-publication.mjs candidate
+          # Exact signed release's component, only for synthetic CI reproduction.
+          curl --fail --location --retry 3 --max-time 120 \
+            https://raw.githubusercontent.com/memeloop-online/memeloop-token-center-example-plugins/5a3cbcae186e90b63929cde518e29e6c86aac54b/examples/plugins/policy-rewrite/plugin.wasm \
+            --output "$RUNNER_TEMP/example-components/policy-rewrite-before-growth.wasm"
+          echo '99a31075d093d288367f0efd223c7a1b65c92d3dc79fb73fce765235d290992d  '"$RUNNER_TEMP/example-components/policy-rewrite-before-growth.wasm" | sha256sum --check
       - name: Preserve compiled policy candidate before host acceptance
         uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4
         with:
@@ -123,14 +129,27 @@ jobs:
           path: |
             ${{ runner.temp }}/example-components/policy-rewrite.wasm
             ${{ runner.temp }}/example-components/policy-rewrite-candidate.json
+            ${{ runner.temp }}/example-components/model-guard.wasm
+            ${{ runner.temp }}/example-components/policy-rewrite-before-growth.wasm
           if-no-files-found: error
           retention-days: 90
+      # Candidate upload intentionally precedes this gate. The first source-only
+      # change fails here until its exact CI artifact is checked in; it is never
+      # called a passing publication/acceptance run.
+      - name: Require checked-in policy binary to match the CI build
+        run: cmp examples/plugins/policy-rewrite/plugin.wasm "$RUNNER_TEMP/example-components/policy-rewrite.wasm"
       - name: Assemble the three fixed packages
-        run: node scripts/example-publication.mjs assemble
+        run: |
+          node scripts/example-publication.mjs assemble
+          mkdir -p "$RUNNER_TEMP/model-guard-fixture"
+          cp plugin-sources/model-guard/plugin.json "$RUNNER_TEMP/model-guard-fixture/plugin.json"
+          cp "$RUNNER_TEMP/example-components/model-guard.wasm" "$RUNNER_TEMP/model-guard-fixture/plugin.wasm"
       - name: Verify provider schemas and policy behavior in the actual host
         working-directory: ${{ runner.temp }}/example-publication-host
         env:
           MTC_EXAMPLE_PUBLICATION_ROOT: ${{ github.workspace }}/dist/examples/packages
+          MTC_EXAMPLE_MODEL_GUARD_PACKAGE: ${{ runner.temp }}/model-guard-fixture
+          MTC_EXAMPLE_PRE_GROWTH_POLICY_COMPONENT: ${{ runner.temp }}/example-components/policy-rewrite-before-growth.wasm
         run: |
           cp "$GITHUB_WORKSPACE/scripts/example-publication-host.rs" tests/example_publication.rs
           cargo test --locked --all-features --test example_publication
@@ -152,9 +171,62 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+  historical-host-compatibility:
+    name: exact policy + guard on production host 469c6dd
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: 2
+      CARGO_PROFILE_TEST_DEBUG: 0
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: example-plugins-review-${{ github.sha }}
+          path: dist/examples
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: policy-rewrite-component-candidate-${{ github.sha }}
+          path: .compat-components
+      - name: Check out the immutable serving gateway source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: memeloop-online/memeloop-token-center
+          ref: 469c6dd5aff4c46aa19ad7f60cb7baf9c699db62
+          path: .historical-host
+          persist-credentials: false
+      - name: Check out the serving host's own immutable fixture
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: memeloop-online/memeloop-token-center-example-plugins
+          ref: 21489f4fee6266de99fe7e258349468ce77af8bd
+          path: .historical-host/.plugin-examples
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+        with:
+          toolchain: 1.95.0
+      - name: Verify exact historical host and run actual large component requests
+        env:
+          MTC_EXAMPLE_PUBLICATION_ROOT: ${{ github.workspace }}/dist/examples/packages
+          MTC_EXAMPLE_MODEL_GUARD_PACKAGE: ${{ runner.temp }}/historical-model-guard
+          MTC_EXAMPLE_PRE_GROWTH_POLICY_COMPONENT: ${{ github.workspace }}/.compat-components/policy-rewrite-before-growth.wasm
+        run: |
+          test "$(git -C .historical-host rev-parse HEAD)" = 469c6dd5aff4c46aa19ad7f60cb7baf9c699db62
+          cmp wit/token-center.wit .historical-host/wit/token-center.wit
+          mkdir -p "$MTC_EXAMPLE_MODEL_GUARD_PACKAGE"
+          cp plugin-sources/model-guard/plugin.json "$MTC_EXAMPLE_MODEL_GUARD_PACKAGE/plugin.json"
+          cp .compat-components/model-guard.wasm "$MTC_EXAMPLE_MODEL_GUARD_PACKAGE/plugin.wasm"
+          cp scripts/example-publication-host.rs .historical-host/tests/example_publication.rs
+          mv .historical-host "$RUNNER_TEMP/historical-publication-host"
+          cd "$RUNNER_TEMP/historical-publication-host"
+          cargo test --locked --all-features --test example_publication
+
   publish:
     name: sign and clean-install ${{ matrix.package }}
-    needs: verify
+    needs: [verify, historical-host-compatibility]
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && github.repository == 'memeloop-online/memeloop-token-center-example-plugins'
     runs-on: ubuntu-latest
     timeout-minutes: 30

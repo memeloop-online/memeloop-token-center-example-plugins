@@ -19,7 +19,10 @@
   (import "cm32p2|memeloop:token-center/host@0.2" "kv-put" (func $kv-put (type $kv-put)))
   (import "cm32p2|memeloop:token-center/host@0.2" "http-request" (func $http-request (type $http-request)))
 
-  (memory $memory 1)
+  ;; Match the immutable host's 32 MiB per-memory StoreLimits ceiling (512
+  ;; WebAssembly pages). The previous one-page allocator failed while lowering
+  ;; request-json, before post-auth could inspect enabled=false.
+  (memory $memory 1 512)
   (global $heap (mut i32) (i32.const 8192))
   (data (i32.const 64) "{\22model\22:\22example-rewritten\22,\22messages\22:[{\22role\22:\22user\22,\22content\22:\22rewritten by plugin\22}]}")
   (data (i32.const 160) "{\22enabled\22:true}")
@@ -156,14 +159,61 @@
 
   (func $normalize-post (type $post-one) (param i32))
 
-  (func $realloc (type $realloc) (param i32 i32 i32 i32) (result i32)
-    (local $result i32)
-    global.get $heap
-    local.tee $result
-    local.get 3
-    i32.add
-    global.set $heap
-    local.get $result)
+  ;; Each host hook uses a fresh Store/instance. Free is therefore a no-op;
+  ;; allocations live until that invocation ends. Preserve realloc's old bytes
+  ;; nevertheless: callers may resize an allocation within one invocation.
+  (func $realloc (type $realloc)
+    (param $old-ptr i32) (param $old-size i32)
+    (param $alignment i32) (param $new-size i32) (result i32)
+    (local $aligned i64) (local $end i64) (local $mask i64)
+    (local $pages i32) (local $copy-size i32)
+    ;; Canonical ABI alignment is a nonzero power of two. Use unsigned i64
+    ;; arithmetic for alignment/size sums so neither i32 wrap nor rounded page
+    ;; overflow can turn an oversized allocation into a small one.
+    local.get $alignment i32.eqz
+    if unreachable end
+    local.get $alignment local.get $alignment i32.const 1 i32.sub i32.and
+    if unreachable end
+    local.get $new-size i32.eqz
+    if i32.const 0 return end
+    local.get $alignment i64.extend_i32_u i64.const 1 i64.sub local.set $mask
+    global.get $heap i64.extend_i32_u
+    local.get $mask i64.add
+    local.get $mask i64.const -1 i64.xor i64.and
+    local.tee $aligned
+    local.get $new-size i64.extend_i32_u i64.add local.tee $end
+    i64.const 33554432 i64.gt_u
+    if unreachable end
+    ;; Reject an invalid old range before growing memory. This also checks the
+    ;; old-pointer addition without wrapping, including deliberately hostile ABI
+    ;; calls; old-size zero needs no readable allocation.
+    local.get $old-size
+    if
+      local.get $old-ptr i32.eqz
+      if unreachable end
+      local.get $old-ptr i64.extend_i32_u
+      local.get $old-size i64.extend_i32_u i64.add
+      memory.size i64.extend_i32_u i64.const 16 i64.shl i64.gt_u
+      if unreachable end
+    end
+    local.get $end i64.const 65535 i64.add i64.const 16 i64.shr_u
+    i32.wrap_i64 local.tee $pages
+    memory.size i32.gt_u
+    if
+      local.get $pages memory.size i32.sub memory.grow
+      i32.const -1 i32.eq
+      if unreachable end
+    end
+    local.get $old-size local.set $copy-size
+    local.get $new-size local.get $copy-size i32.lt_u
+    if local.get $new-size local.set $copy-size end
+    local.get $copy-size
+    if
+      local.get $aligned i32.wrap_i64
+      local.get $old-ptr local.get $copy-size memory.copy
+    end
+    local.get $end i32.wrap_i64 global.set $heap
+    local.get $aligned i32.wrap_i64)
 
   (func $initialize (type $initialize))
 
