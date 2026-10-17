@@ -313,3 +313,36 @@ async fn policy_large_inputs_and_real_model_guard_chain() {
             .allow
     );
 }
+
+// Reproduce the exact previously published component failure in CI on both
+// immutable hosts. This is a synthetic package regression, not live attribution.
+#[tokio::test]
+async fn published_pre_growth_component_fails_large_default_off_input() {
+    let (directory, fixed) = runtime("example-policy-rewrite").await;
+    let root = directory.path().join("plugins");
+    fs::copy(
+        std::env::var("MTC_EXAMPLE_PRE_GROWTH_POLICY_COMPONENT").unwrap(),
+        root.join("example-policy-rewrite/plugin.wasm"),
+    )
+    .unwrap();
+    let database = Database::connect(&format!(
+        "sqlite://{}?mode=rwc",
+        directory.path().join("old.db").display()
+    ))
+    .await
+    .unwrap();
+    let before_growth = PluginRuntime::load(root.to_str(), database).unwrap();
+    let request = json!({"model":"requested-model", "input":"x".repeat(64 * 1024)});
+    let failure = before_growth
+        .apply_traffic(context(), &request)
+        .unwrap_err();
+    assert!(
+        failure
+            .to_string()
+            .contains("plugin example-policy-rewrite execution failed")
+    );
+    let decision = fixed.apply_traffic(context(), &request).unwrap();
+    assert!(decision.allow);
+    assert!(decision.request_json.is_none());
+    assert!(decision.model.is_none());
+}

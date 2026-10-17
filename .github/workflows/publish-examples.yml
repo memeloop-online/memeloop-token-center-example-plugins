@@ -117,6 +117,11 @@ jobs:
             -o "$RUNNER_TEMP/example-components/policy-rewrite.wasm"
           wasm-tools validate --features component-model "$RUNNER_TEMP/example-components/policy-rewrite.wasm"
           node scripts/example-publication.mjs candidate
+          # Exact signed release's component, only for synthetic CI reproduction.
+          curl --fail --location --retry 3 --max-time 120 \
+            https://raw.githubusercontent.com/memeloop-online/memeloop-token-center-example-plugins/5a3cbcae186e90b63929cde518e29e6c86aac54b/examples/plugins/policy-rewrite/plugin.wasm \
+            --output "$RUNNER_TEMP/example-components/policy-rewrite-before-growth.wasm"
+          echo '99a31075d093d288367f0efd223c7a1b65c92d3dc79fb73fce765235d290992d  '"$RUNNER_TEMP/example-components/policy-rewrite-before-growth.wasm" | sha256sum --check
       - name: Preserve compiled policy candidate before host acceptance
         uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4
         with:
@@ -125,6 +130,7 @@ jobs:
             ${{ runner.temp }}/example-components/policy-rewrite.wasm
             ${{ runner.temp }}/example-components/policy-rewrite-candidate.json
             ${{ runner.temp }}/example-components/model-guard.wasm
+            ${{ runner.temp }}/example-components/policy-rewrite-before-growth.wasm
           if-no-files-found: error
           retention-days: 90
       # Candidate upload intentionally precedes this gate. The first source-only
@@ -143,6 +149,7 @@ jobs:
         env:
           MTC_EXAMPLE_PUBLICATION_ROOT: ${{ github.workspace }}/dist/examples/packages
           MTC_EXAMPLE_MODEL_GUARD_PACKAGE: ${{ runner.temp }}/model-guard-fixture
+          MTC_EXAMPLE_PRE_GROWTH_POLICY_COMPONENT: ${{ runner.temp }}/example-components/policy-rewrite-before-growth.wasm
         run: |
           cp "$GITHUB_WORKSPACE/scripts/example-publication-host.rs" tests/example_publication.rs
           cargo test --locked --all-features --test example_publication
@@ -205,6 +212,7 @@ jobs:
         env:
           MTC_EXAMPLE_PUBLICATION_ROOT: ${{ github.workspace }}/dist/examples/packages
           MTC_EXAMPLE_MODEL_GUARD_PACKAGE: ${{ runner.temp }}/historical-model-guard
+          MTC_EXAMPLE_PRE_GROWTH_POLICY_COMPONENT: ${{ github.workspace }}/.compat-components/policy-rewrite-before-growth.wasm
         run: |
           test "$(git -C .historical-host rev-parse HEAD)" = 469c6dd5aff4c46aa19ad7f60cb7baf9c699db62
           cmp wit/token-center.wit .historical-host/wit/token-center.wit
