@@ -114,6 +114,7 @@ jobs:
           wasm-tools component new "$RUNNER_TEMP/example-components/policy-rewrite.embedded.wasm" \
             -o "$RUNNER_TEMP/example-components/policy-rewrite.wasm"
           wasm-tools validate --features component-model "$RUNNER_TEMP/example-components/policy-rewrite.wasm"
+          cmp examples/plugins/policy-rewrite/plugin.wasm "$RUNNER_TEMP/example-components/policy-rewrite.wasm"
           node scripts/example-publication.mjs candidate
       - name: Preserve compiled policy candidate before host acceptance
         uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4
