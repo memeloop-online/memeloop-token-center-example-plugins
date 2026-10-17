@@ -252,14 +252,22 @@ async fn policy_large_inputs_and_real_model_guard_chain() {
         assert!(enabled.allow);
         assert_eq!(enabled.model.as_deref(), Some("example-rewritten"));
         assert_eq!(
-            enabled.request_json.unwrap(),
-            json!({"model":"example-rewritten", "messages":[{"role":"user", "content":"rewritten by plugin"}]})
+            enabled.request_json.as_ref().unwrap(),
+            &json!({"model":"example-rewritten", "messages":[{"role":"user", "content":"rewritten by plugin"}]})
         );
         let allowed = chain
             .apply_traffic_with_config(context(), &request, &guard_config)
             .unwrap();
         assert!(allowed.allow);
         assert!(allowed.request_json.is_none());
+        let mut enabled_chain_config = guard_config.clone();
+        enabled_chain_config.insert("example-policy-rewrite".into(), json!({"enabled":true}));
+        let rewritten_chain = chain
+            .apply_traffic_with_config(context(), &request, &enabled_chain_config)
+            .unwrap();
+        assert!(rewritten_chain.allow);
+        assert_eq!(rewritten_chain.model.as_deref(), Some("example-rewritten"));
+        assert_eq!(rewritten_chain.request_json, enabled.request_json);
         let mut blocked_config = guard_config.clone();
         blocked_config.insert(
             "mtc-model-guard".into(),
@@ -275,6 +283,23 @@ async fn policy_large_inputs_and_real_model_guard_chain() {
         assert!(diagnostic.contains("mtc-model-guard"));
         assert!(diagnostic.contains("policy_denied"));
     }
+    // Stay below the explicit 16 MiB total-input contract being introduced in
+    // the host: allow room for all context strings and the largest guard config.
+    let near_limit =
+        json!({"model":"requested-model", "input":"x".repeat(16 * 1024 * 1024 - 64 * 1024)});
+    let mut large_config = guard_config.clone();
+    large_config.insert(
+        "mtc-model-guard".into(),
+        json!({"blocked_models":
+            (0..128).map(|index| format!("{index:03}{}", "x".repeat(253))).collect::<Vec<_>>()
+        }),
+    );
+    assert!(
+        chain
+            .apply_traffic_with_config(context(), &near_limit, &large_config)
+            .unwrap()
+            .allow
+    );
     let mut other_tenant = context();
     other_tenant.tenant_id = "independent-small-tenant".into();
     assert!(
