@@ -79,6 +79,10 @@ jobs:
           test "$(git -C .publication-host rev-parse HEAD)" = "$HOST_SOURCE_REVISION"
           test "$(git -C .publication-host/.plugin-examples rev-parse HEAD)" = "$HOST_FIXTURE_REVISION"
           cmp wit/token-center.wit .publication-host/wit/token-center.wit
+          # The host is a standalone crate, outside this repository's Cargo
+          # workspace. Preserve its immutable checkout instead of editing either
+          # Cargo.toml to manufacture workspace membership.
+          mv .publication-host "$RUNNER_TEMP/example-publication-host"
       - name: Set up the locked guest and host toolchain
         uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
         with:
@@ -110,17 +114,27 @@ jobs:
           wasm-tools component new "$RUNNER_TEMP/example-components/policy-rewrite.embedded.wasm" \
             -o "$RUNNER_TEMP/example-components/policy-rewrite.wasm"
           wasm-tools validate --features component-model "$RUNNER_TEMP/example-components/policy-rewrite.wasm"
+          node scripts/example-publication.mjs candidate
+      - name: Preserve compiled policy candidate before host acceptance
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4
+        with:
+          name: policy-rewrite-component-candidate-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/example-components/policy-rewrite.wasm
+            ${{ runner.temp }}/example-components/policy-rewrite-candidate.json
+          if-no-files-found: error
+          retention-days: 90
       - name: Assemble the three fixed packages
         run: node scripts/example-publication.mjs assemble
       - name: Verify provider schemas and policy behavior in the actual host
-        working-directory: .publication-host
+        working-directory: ${{ runner.temp }}/example-publication-host
         env:
           MTC_EXAMPLE_PUBLICATION_ROOT: ${{ github.workspace }}/dist/examples/packages
         run: |
-          cp ../scripts/example-publication-host.rs tests/example_publication.rs
+          cp "$GITHUB_WORKSPACE/scripts/example-publication-host.rs" tests/example_publication.rs
           cargo test --locked --all-features --test example_publication
       - name: Verify quota-routing guest and gateway with native health safety
-        working-directory: .publication-host
+        working-directory: ${{ runner.temp }}/example-publication-host
         env:
           MTC_SOONEST_RESET_PACKAGE: ${{ github.workspace }}/dist/examples/packages/mtc-soonest-reset
         run: |

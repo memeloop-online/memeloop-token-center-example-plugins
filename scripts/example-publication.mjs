@@ -178,10 +178,23 @@ function assemble() {
   }
 }
 
+function candidate() {
+  const wasm = readFileSync(join(process.env.RUNNER_TEMP, 'example-components/policy-rewrite.wasm'));
+  assert.equal(wasm.subarray(0, 8).toString('hex'), '0061736d0d000100');
+  writeJson(join(process.env.RUNNER_TEMP, 'example-components/policy-rewrite-candidate.json'), {
+    format_version: 1, plugin_id: 'example-policy-rewrite', source_revision: sourceRevision(),
+    source_wat_sha256: hash(readFileSync('examples/plugins/policy-rewrite/plugin.wat')),
+    wit_sha256: hash(readFileSync('wit/token-center.wit')), wasm_sha256: hash(wasm),
+    wasm_tools_version: '1.252.0',
+    acceptance_scope: 'Compiled component and direct core ABI checks only; not host-verified or signed.',
+    host_verified: false, signed: false,
+  });
+}
+
 function review() {
   requireTrust();
   const revision = sourceRevision();
-  const hostRevision = execFileSync('git', ['-C', '.publication-host', 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const hostRevision = execFileSync('git', ['-C', join(process.env.RUNNER_TEMP, 'example-publication-host'), 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
   assert.equal(hostRevision, trust.host_source_revision);
   mkdirSync(join(dist, 'review'), { recursive: true });
   mkdirSync(join(dist, 'archives'), { recursive: true });
@@ -303,6 +316,6 @@ function release() {
   appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Signed ${item.id}\n\nReference: \`${item.source}@${digest}\`\n\nIdentity: \`${identity}\`\n\nIssuer: \`${issuer}\`\n\nOfficial installer clean installation and pinned host fixtures passed. Live provider authorization and inference remain separate operator acceptance.\n`);
 }
 
-const commands = { resolve: resolveTrust, 'verify-pins': verifyPins, assemble, review, select, push, release };
+const commands = { resolve: resolveTrust, 'verify-pins': verifyPins, candidate, assemble, review, select, push, release };
 assert(Object.hasOwn(commands, process.argv[2]), 'unknown example publication command');
 await commands[process.argv[2]]();
