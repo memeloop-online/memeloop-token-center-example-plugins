@@ -25,6 +25,14 @@ async fn runtime(id: &str) -> (tempfile::TempDir, PluginRuntime) {
     if manifest.wasm.is_some() {
         fs::copy(source.join("plugin.wasm"), package.join("plugin.wasm")).unwrap();
     }
+    if id == "example-policy-rewrite" {
+        // Synthetic host-owned lifecycle fixture receipt, not a signature or
+        // installation claim. Never copied into assembled publication packages.
+        fs::write(package.join(".mtc-oci-install.json"), serde_json::to_vec(&json!({
+            "format_version":1, "source":"registry.invalid/ci-only-large-input-fixture",
+            "digest":format!("sha256:{}", "a".repeat(64)), "signature_policy":"cosign-public-key"
+        })).unwrap()).unwrap();
+    }
     let database = Database::connect(&format!(
         "sqlite://{}?mode=rwc",
         directory.path().join("host.db").display()
