@@ -209,3 +209,81 @@ async fn policy_exact_component_defaults_to_no_rewrite_and_preserves_upstream_er
         );
     }
 }
+
+// Request size includes JSON escaping, not just the source string length. Every
+// host invocation gets a fresh guest instance; large calls must not exhaust a
+// previous invocation's bump allocator or alter a later tenant's small request.
+#[tokio::test]
+async fn policy_large_inputs_and_real_model_guard_chain() {
+    let (directory, policy) = runtime("example-policy-rewrite").await;
+    let guard = PathBuf::from(std::env::var("MTC_EXAMPLE_MODEL_GUARD_PACKAGE").unwrap());
+    let root = directory.path().join("plugins");
+    let package = root.join("mtc-model-guard");
+    fs::create_dir_all(&package).unwrap();
+    for name in ["plugin.json", "plugin.wasm"] {
+        fs::copy(guard.join(name), package.join(name)).unwrap();
+    }
+    let database = Database::connect(&format!(
+        "sqlite://{}?mode=rwc",
+        directory.path().join("chain.db").display()
+    ))
+    .await
+    .unwrap();
+    let chain = PluginRuntime::load(root.to_str(), database).unwrap();
+    assert_eq!(chain.manifests().len(), 2);
+    let guard_config = BTreeMap::from([
+        ("example-policy-rewrite".into(), json!({"enabled":false})),
+        ("mtc-model-guard".into(), json!({"blocked_models":[]})),
+    ]);
+    for size in [64 * 1024, 256 * 1024, 1024 * 1024] {
+        let request = json!({"model":"requested-model", "input":"\0\"\\".repeat(size / 3)});
+        assert!(serde_json::to_vec(&request).unwrap().len() >= size);
+        let disabled = policy.apply_traffic(context(), &request).unwrap();
+        assert!(disabled.allow);
+        assert!(disabled.model.is_none());
+        assert!(disabled.request_json.is_none());
+        let enabled = policy
+            .apply_traffic_with_config(
+                context(),
+                &request,
+                &BTreeMap::from([("example-policy-rewrite".into(), json!({"enabled":true}))]),
+            )
+            .unwrap();
+        assert!(enabled.allow);
+        assert_eq!(enabled.model.as_deref(), Some("example-rewritten"));
+        assert_eq!(
+            enabled.request_json.unwrap(),
+            json!({"model":"example-rewritten", "messages":[{"role":"user", "content":"rewritten by plugin"}]})
+        );
+        let allowed = chain
+            .apply_traffic_with_config(context(), &request, &guard_config)
+            .unwrap();
+        assert!(allowed.allow);
+        assert!(allowed.request_json.is_none());
+        let mut blocked_config = guard_config.clone();
+        blocked_config.insert(
+            "mtc-model-guard".into(),
+            json!({"blocked_models":["requested-model"]}),
+        );
+        let blocked = chain
+            .apply_traffic_with_config(context(), &request, &blocked_config)
+            .unwrap();
+        assert!(!blocked.allow);
+        assert_eq!(
+            blocked.denied_by_plugin_id.as_deref(),
+            Some("mtc-model-guard")
+        );
+    }
+    let mut other_tenant = context();
+    other_tenant.tenant_id = "independent-small-tenant".into();
+    assert!(
+        chain
+            .apply_traffic_with_config(
+                other_tenant,
+                &json!({"model":"requested-model","messages":[]}),
+                &guard_config
+            )
+            .unwrap()
+            .allow
+    );
+}

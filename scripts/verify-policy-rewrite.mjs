@@ -51,6 +51,23 @@ function string(value) {
   return [pointer, bytes.length];
 }
 
+// Exercise allocation mechanics independently of policy decisions. These are
+// CI-only checks against the freshly compiled core, never a replacement for
+// the real Component Model host fixture below.
+const preserved = string('allocator-preserves-old-bytes');
+const resized = realloc(preserved[0], preserved[1], 64, 70000);
+assert.equal(resized % 64, 0);
+assert.equal(readString(resized, preserved[1]), 'allocator-preserves-old-bytes');
+assert.ok(memory.buffer.byteLength > 65536, 'realloc must grow across a page');
+const shrunk = realloc(resized, 70000, 16, 9);
+assert.equal(readString(shrunk, 9), 'allocator');
+assert.equal(realloc(shrunk, 9, 1, 0), 0);
+for (const [alignment, length] of [[0, 1], [3, 1], [1, 0xffffffff], [0x80000000, 1]]) {
+  assert.throws(() => realloc(0, 0, alignment, length), WebAssembly.RuntimeError);
+}
+assert.throws(() => realloc(0xfffffff0, 64, 1, 128), WebAssembly.RuntimeError);
+checks.push('allocator-growth-alignment-copy-free-overflow');
+
 function readString(pointer, length) {
   return decoder.decode(new Uint8Array(memory.buffer, pointer, length));
 }
@@ -86,6 +103,17 @@ function passThrough(config, name) {
 
 passThrough(JSON.stringify(manifest.contributions.configuration.default), 'manifest-default-pass-through');
 passThrough('{"enabled":false}', 'explicit-false-pass-through');
+for (const size of [64 * 1024, 256 * 1024, 1024 * 1024]) {
+  const request = JSON.stringify({ model: 'original-model', input: '\u0000"\\'.repeat(Math.ceil(size / 3)) });
+  assert.ok(encoder.encode(request).length >= size);
+  assert.deepEqual(decision('{"enabled":false}', request), {
+    allow: true, reason: null, model: null, account: null, request: null,
+  }, `disabled large escaped request ${size}`);
+  const enabled = decision('{"enabled":true}', request);
+  assert.equal(enabled.allow, true);
+  assert.equal(enabled.model, 'example-rewritten');
+  checks.push(`large-escaped-request-${size}-disabled-and-enabled`);
+}
 const rewritten = decision('{"enabled":true}', '{"model":"original-model","enabled":false}');
 assert.deepEqual(rewritten, {
   allow: true,
