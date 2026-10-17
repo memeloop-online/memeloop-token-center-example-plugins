@@ -8,6 +8,7 @@ on:
       - 'scripts/verify-policy-rewrite.mjs'
       - 'release/examples-*.json'
       - 'plugin-sources/soonest-reset/**'
+      - 'plugin-sources/model-guard/**'
       - 'plugins/google-antigravity/**'
       - 'examples/plugins/policy-rewrite/**'
       - 'wit/**'
@@ -20,6 +21,7 @@ on:
       - 'scripts/verify-policy-rewrite.mjs'
       - 'release/examples-*.json'
       - 'plugin-sources/soonest-reset/**'
+      - 'plugin-sources/model-guard/**'
       - 'plugins/google-antigravity/**'
       - 'examples/plugins/policy-rewrite/**'
       - 'wit/**'
@@ -173,6 +175,9 @@ jobs:
 
   historical-host-compatibility:
     name: exact policy + guard on production host 469c6dd
+    permissions:
+      contents: read
+      actions: read
     needs: verify
     runs-on: ubuntu-latest
     timeout-minutes: 90
