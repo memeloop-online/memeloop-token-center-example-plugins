@@ -7,18 +7,37 @@
   "contributions": {
     "traffic_policy": true,
     "request_rewrite": true,
+    "configuration": {
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["enabled"],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enable fixture request rewrite for this tenant"
+          }
+        }
+      },
+      "default": { "enabled": false }
+    },
     "providers": [
       {
         "id": "example-oauth-http",
-        "display_name": "Example OAuth HTTP",
-        "protocols": ["openai", "anthropic"],
-        "modalities": ["text", "embedding"],
+        "display_name": "Development fixture HTTP",
+        "protocols": ["openai"],
+        "modalities": ["text"],
         "config_schema": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
           "additionalProperties": false,
-          "required": ["base_url"],
+          "required": ["base_url", "development_fixture"],
           "properties": {
+            "development_fixture": {
+              "type": "boolean",
+              "const": true,
+              "title": "Use only with a controlled development fixture"
+            },
             "base_url": {
               "type": "string",
               "format": "uri",
