@@ -19,6 +19,7 @@ const env = process.env;
 assert.equal(env.GITHUB_REPOSITORY, repository);
 assert.equal(env.GITHUB_EVENT_NAME, 'workflow_dispatch');
 assert.equal(env.GITHUB_REF, 'refs/heads/master');
+assert.equal(env.GITHUB_REF_PROTECTED, 'true');
 assert.match(env.GITHUB_SHA ?? '', /^[0-9a-f]{40}$/);
 for (const key of ['GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT']) assert.match(env[key] ?? '', /^[1-9][0-9]*$/);
 assert(Object.hasOwn(workflows, env.PLUGIN_ID));

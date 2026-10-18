@@ -244,7 +244,7 @@ jobs:
   publish:
     name: sign and clean-install ${{ matrix.package }}
     needs: [verify, historical-host-compatibility]
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && github.repository == 'memeloop-online/memeloop-token-center-example-plugins'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && github.ref_protected == true && github.repository == 'memeloop-online/memeloop-token-center-example-plugins'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:

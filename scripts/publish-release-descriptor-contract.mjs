@@ -27,7 +27,7 @@ function fixture(item, change = () => {}) {
   const evidence = { reference: `${source}@${digest}`, plugin_id: id, git_sha: revision,
     installation_verified: true, signature: { identity, issuer } };
   const env = { ...process.env, GITHUB_REPOSITORY: repository, GITHUB_EVENT_NAME: 'workflow_dispatch',
-    GITHUB_REF: 'refs/heads/master', GITHUB_SHA: revision, GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '2',
+    GITHUB_REF: 'refs/heads/master', GITHUB_REF_PROTECTED: 'true', GITHUB_SHA: revision, GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '2',
     GITHUB_WORKFLOW_REF: `${repository}/.github/workflows/${workflow}@refs/heads/master`,
     SIGNING_IDENTITY: identity, SIGNING_ISSUER: issuer, PLUGIN_ID: id, PLUGIN_SOURCE: source,
     PLUGIN_DIGEST: digest, RUNNER_TEMP: root, GITHUB_STEP_SUMMARY: join(root, 'summary'),
@@ -59,6 +59,7 @@ for (const [name, change] of [
   ['old repository identity', (env) => { env.SIGNING_IDENTITY = env.SIGNING_IDENTITY.replace('example-plugins', 'health-intelligence-plugin'); }],
   ['wrong workflow', (env) => { env.GITHUB_WORKFLOW_REF = `${repository}/.github/workflows/other.yml@refs/heads/master`; }],
   ['pull request execution', (env) => { env.GITHUB_EVENT_NAME = 'pull_request'; }],
+  ['unprotected master', (env) => { env.GITHUB_REF_PROTECTED = 'false'; }],
   ['non-master execution', (env) => { env.GITHUB_REF = 'refs/heads/feature'; }],
 ]) test(`rejects ${name} before invoking GitHub`, () => {
   const value = fixture(cases[0], change);

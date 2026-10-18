@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   publish:
-    if: github.ref == 'refs/heads/master' && github.repository == 'memeloop-online/memeloop-token-center-example-plugins'
+    if: github.ref == 'refs/heads/master' && github.ref_protected == true && github.repository == 'memeloop-online/memeloop-token-center-example-plugins'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment:
