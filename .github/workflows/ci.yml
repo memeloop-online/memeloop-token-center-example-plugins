@@ -32,7 +32,7 @@ jobs:
       - name: Verify release descriptor publisher syntax
         run: node --check scripts/publish-release-descriptor.mjs
       - name: Verify all seven release assets and reject mismatched publication evidence
-        run: node --test scripts/publish-release-descriptor.test.mjs
+        run: node --test scripts/publish-release-descriptor-contract.mjs
       - name: Verify typed API and fixtures
         run: npm run check
       - name: Set up pinned Rust component toolchain
