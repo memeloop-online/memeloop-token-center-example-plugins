@@ -167,7 +167,11 @@ jobs:
         working-directory: ${{ runner.temp }}/example-publication-host
         env:
           MTC_SOONEST_RESET_PACKAGE: ${{ github.workspace }}/dist/examples/packages/mtc-soonest-reset
+          MTC_MODEL_GUARD_PACKAGE: ${{ github.workspace }}/dist/examples/packages/mtc-model-guard
+          MTC_PREFERRED_ACCOUNT_PACKAGE: ${{ github.workspace }}/dist/examples/packages/mtc-preferred-account
         run: |
+          cargo test --locked --all-features --test first_party_model_guard -- --ignored
+          cargo test --locked --all-features --test first_party_preferred_account -- --ignored
           cargo test --locked --all-features --test first_party_soonest_reset -- --ignored
           cargo test --locked --all-features --lib soonest_reset_real_gateway -- --ignored
       - name: Record unsigned review archives after real host acceptance
