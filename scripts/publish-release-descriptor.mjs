@@ -9,8 +9,8 @@ const repository = 'memeloop-online/memeloop-token-center-example-plugins';
 const workflows = {
   'mtc-health-intelligence': ['publish.yml', 'memeloop-token-center-health-intelligence-plugin'],
   'mtc-text-playground': ['publish-playground.yml', 'memeloop-token-center-text-playground-plugin'],
-  'mtc-model-guard': ['publish-examples.yml', 'mtc-model-guard'],
-  'mtc-preferred-account': ['publish-examples.yml', 'mtc-preferred-account'],
+  'mtc-model-guard': ['publish-examples.yml', 'memeloop-token-center-example-model-guard'],
+  'mtc-preferred-account': ['publish-examples.yml', 'memeloop-token-center-example-preferred-account'],
   'mtc-soonest-reset': ['publish-examples.yml', 'mtc-soonest-reset'],
   'google-antigravity': ['publish-examples.yml', 'mtc-google-antigravity'],
   'example-policy-rewrite': ['publish-examples.yml', 'mtc-example-policy-rewrite'],
