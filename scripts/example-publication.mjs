@@ -9,12 +9,12 @@ import { join, resolve } from 'node:path';
 const packages = Object.freeze({
   'model-guard': {
     id: 'mtc-model-guard', directory: 'plugin-sources/model-guard',
-    source: 'ghcr.io/memeloop-online/mtc-model-guard',
+    source: 'ghcr.io/memeloop-online/memeloop-token-center-example-model-guard',
     files: ['plugin.json', 'plugin.wasm', 'README.md', 'LICENSE'],
   },
   'preferred-account': {
     id: 'mtc-preferred-account', directory: 'plugin-sources/preferred-account',
-    source: 'ghcr.io/memeloop-online/mtc-preferred-account',
+    source: 'ghcr.io/memeloop-online/memeloop-token-center-example-preferred-account',
     files: ['plugin.json', 'plugin.wasm', 'README.md', 'LICENSE'],
   },
   'soonest-reset': {

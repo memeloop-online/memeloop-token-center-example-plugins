@@ -71,3 +71,10 @@ the plugin ID, full source revision, run ID and attempt. Assets and tags are nev
 replaced; use the exact download URL from the successful run summary. The
 repository's shared latest release is intentionally not used for selecting a
 plugin. Publication does not activate any production plugin.
+
+Model guard and preferred account publish to this repository's dedicated OCI
+packages `ghcr.io/memeloop-online/memeloop-token-center-example-model-guard` and
+`ghcr.io/memeloop-online/memeloop-token-center-example-preferred-account`. Their
+plugin IDs remain `mtc-model-guard` and `mtc-preferred-account`. The older OCI
+packages remain owned by their original repository; this publication workflow
+does not require write authority over those packages.
