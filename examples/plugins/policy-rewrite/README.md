@@ -87,3 +87,13 @@ do not edit Wasm bytes or accept WAT review as runtime verification.
 
 The WAT requests no HTTP, KV or logging capability. The provider's outbound
 request is executed by the host under the configured account's network policy.
+
+The canonical ABI allocator grows guest memory by pages under the host's existing
+32 MiB memory ceiling. It checks alignment and size arithmetic and preserves
+bytes when reallocating. Each host hook uses a fresh instance, so allocations
+are reclaimed with that invocation. The disabled setting is checked only after
+ABI input lowering; it never bypasses memory limits. CI exercises large escaped
+JSON requests with rewriting disabled and enabled, plus the real model-guard
+component, on both the pinned acceptance host and historical production source
+`469c6dd5aff4c46aa19ad7f60cb7baf9c699db62`. This does not claim arbitrary-size
+requests fit a component or establish a production incident's unique cause.
