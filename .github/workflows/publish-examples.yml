@@ -9,6 +9,8 @@ on:
       - 'release/examples-*.json'
       - 'plugin-sources/soonest-reset/**'
       - 'plugin-sources/model-guard/**'
+      - 'plugin-sources/preferred-account/**'
+      - 'scripts/publish-release-descriptor.mjs'
       - 'plugins/google-antigravity/**'
       - 'examples/plugins/policy-rewrite/**'
       - 'wit/**'
@@ -22,6 +24,8 @@ on:
       - 'release/examples-*.json'
       - 'plugin-sources/soonest-reset/**'
       - 'plugin-sources/model-guard/**'
+      - 'plugin-sources/preferred-account/**'
+      - 'scripts/publish-release-descriptor.mjs'
       - 'plugins/google-antigravity/**'
       - 'examples/plugins/policy-rewrite/**'
       - 'wit/**'
@@ -101,6 +105,10 @@ jobs:
           echo "$RUNNER_TEMP/example-tools" >> "$GITHUB_PATH"
       - name: Test and build the exact quota-routing guest
         run: |
+          cargo test --locked --manifest-path plugin-sources/model-guard/Cargo.toml
+          cargo test --locked --manifest-path plugin-sources/preferred-account/Cargo.toml
+          cargo build --locked --release --target wasm32-unknown-unknown --manifest-path plugin-sources/preferred-account/Cargo.toml
+          wasm-tools component new plugin-sources/preferred-account/target/wasm32-unknown-unknown/release/mtc_preferred_account.wasm -o "$RUNNER_TEMP/example-components/preferred-account.wasm"
           cargo build --locked --release --target wasm32-unknown-unknown --manifest-path plugin-sources/model-guard/Cargo.toml
           wasm-tools component new plugin-sources/model-guard/target/wasm32-unknown-unknown/release/mtc_model_guard.wasm -o "$RUNNER_TEMP/example-components/model-guard.wasm"
           cargo test --locked --manifest-path plugin-sources/soonest-reset/Cargo.toml
@@ -238,9 +246,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [soonest-reset, google-antigravity, policy-rewrite]
+        package: [model-guard, preferred-account, soonest-reset, google-antigravity, policy-rewrite]
     permissions:
-      contents: read
+      contents: write
       actions: read
       packages: write
       id-token: write
@@ -332,6 +340,10 @@ jobs:
             --registry-username-file /registry/username --registry-password-file /registry/password \
             > "$RUNNER_TEMP/plugin-installation.json"
           node scripts/example-publication.mjs release
+      - name: Publish immutable GitHub Release installation descriptor
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/publish-release-descriptor.mjs
       - name: Preserve digest, signature, clean-install receipt and exact package
         uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4
         with:

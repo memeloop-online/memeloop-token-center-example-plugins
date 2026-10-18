@@ -29,6 +29,8 @@ jobs:
           cache: npm
       - name: Install from lockfile
         run: npm ci --ignore-scripts
+      - name: Verify release descriptor publisher syntax
+        run: node --check scripts/publish-release-descriptor.mjs
       - name: Verify typed API and fixtures
         run: npm run check
       - name: Set up pinned Rust component toolchain

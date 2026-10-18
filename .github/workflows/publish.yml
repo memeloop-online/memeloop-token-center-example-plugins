@@ -143,7 +143,7 @@ jobs:
       - name: Publish exact MTC OCI media types
         working-directory: ${{ runner.temp }}/plugin-package
         run: |
-          oras push "$PLUGIN_SOURCE:sha-$GITHUB_SHA" \
+          oras push "$PLUGIN_SOURCE:sha-$GITHUB_SHA-run-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
             --artifact-type application/vnd.memeloop.token-center.plugin.v1 \
             --config config.json:application/vnd.memeloop.token-center.plugin.config.v1+json \
             --annotation "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
@@ -202,6 +202,10 @@ jobs:
           cmp "$RUNNER_TEMP/plugin-package/README.md" "$RUNNER_TEMP/plugin-install/$PLUGIN_ID/README.md"
           cmp "$RUNNER_TEMP/plugin-package/ui/health-intelligence.mjs" "$RUNNER_TEMP/plugin-install/$PLUGIN_ID/ui/health-intelligence.mjs"
           node scripts/verify-release.mjs "$RUNNER_TEMP"
+      - name: Publish immutable GitHub Release installation descriptor
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/publish-release-descriptor.mjs
       - name: Configure Pages
         uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b
       - name: Upload the release API snapshot
@@ -219,8 +223,7 @@ jobs:
           tar -czf "$RUNNER_TEMP/health-intelligence-api-$version.tar.gz" -C site .
           cd "$RUNNER_TEMP"
           sha256sum "mtc-health-intelligence-$version.tar.gz" "health-intelligence-api-$version.tar.gz" > SHA256SUMS
-          gh release create "v$version" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "Model health & intelligence v$version" --generate-notes \
+          gh release upload "$PLUGIN_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             "mtc-health-intelligence-$version.tar.gz" "health-intelligence-api-$version.tar.gz" \
             SHA256SUMS plugin-release.json plugin-oci-manifest.json plugin-signature-verification.json
       - name: Preserve release and clean-install evidence

@@ -422,3 +422,12 @@ fn component_revisions(
         .collect();
     RuntimeRevisions::new(runtime, grants).unwrap()
 }
+
+#[tokio::test]
+async fn routing_and_guard_packages_load_in_the_actual_host() {
+    for id in ["mtc-model-guard", "mtc-preferred-account"] {
+        let (_directory, runtime) = runtime(id).await;
+        assert_eq!(runtime.manifests().len(), 1);
+        assert_eq!(runtime.manifests()[0].id, id);
+    }
+}

@@ -7,6 +7,16 @@ import { join, resolve } from 'node:path';
 // Only this master-reviewed table selects executable inputs, paths and sources.
 // workflow_dispatch accepts its keys, never a path, command, ref or registry.
 const packages = Object.freeze({
+  'model-guard': {
+    id: 'mtc-model-guard', directory: 'plugin-sources/model-guard',
+    source: 'ghcr.io/memeloop-online/mtc-model-guard',
+    files: ['plugin.json', 'plugin.wasm', 'README.md', 'LICENSE'],
+  },
+  'preferred-account': {
+    id: 'mtc-preferred-account', directory: 'plugin-sources/preferred-account',
+    source: 'ghcr.io/memeloop-online/mtc-preferred-account',
+    files: ['plugin.json', 'plugin.wasm', 'README.md', 'LICENSE'],
+  },
   'soonest-reset': {
     id: 'mtc-soonest-reset', directory: 'plugin-sources/soonest-reset',
     source: 'ghcr.io/memeloop-online/mtc-soonest-reset',
@@ -77,7 +87,18 @@ function validateManifest(item, manifest) {
   assert.equal(manifest.id, item.id);
   assert.match(manifest.version ?? '', /^\d+\.\d+\.\d+$/);
   assert.equal(manifest.wit_version, '0.2.0');
-  if (item.id === 'mtc-soonest-reset') {
+  if (item.id === 'mtc-model-guard') {
+    assert.equal(manifest.wasm, 'plugin.wasm');
+    assert.deepEqual(manifest.capabilities, []);
+    assert.equal(manifest.contributions.traffic_policy, true);
+    assert.deepEqual(manifest.contributions.configuration.default, { blocked_models: [] });
+  } else if (item.id === 'mtc-preferred-account') {
+    assert.equal(manifest.wasm, 'plugin.wasm');
+    assert.deepEqual(manifest.capabilities, []);
+    assert.equal(manifest.contributions.group_routing.version, 'group-routing-v1');
+    assert.equal(manifest.contributions.group_routing.health_policy, 'native');
+    assert.deepEqual(manifest.contributions.group_routing.default, { preferred_account_ids: [] });
+  } else if (item.id === 'mtc-soonest-reset') {
     assert.equal(manifest.wasm, 'plugin.wasm');
     assert.deepEqual(manifest.capabilities, [{ kind: 'group_routing_quota' }]);
     assert.equal(manifest.contributions.group_routing.version, 'group-routing-v1');
@@ -245,7 +266,7 @@ function push() {
   assert.equal(process.env.GITHUB_REPOSITORY, repository);
   assert.equal(process.env.GITHUB_EVENT_NAME, 'workflow_dispatch');
   assert.equal(process.env.GITHUB_REF, 'refs/heads/master');
-  const args = ['push', `${item.source}:sha-${sourceRevision()}`,
+  const args = ['push', `${item.source}:sha-${sourceRevision()}-run-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`,
     '--artifact-type', artifactType, '--config', `config.json:${configType}`,
     '--annotation', `org.opencontainers.image.source=https://github.com/${repository}`,
     '--annotation', `org.opencontainers.image.revision=${sourceRevision()}`,
