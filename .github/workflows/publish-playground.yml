@@ -12,11 +12,11 @@ concurrency:
 
 jobs:
   publish:
-    if: github.ref == 'refs/heads/master' && github.repository == 'memeloop-online/memeloop-token-center-example-plugins'
+    if: github.ref == 'refs/heads/master' && github.ref_protected == true && github.repository == 'memeloop-online/memeloop-token-center-example-plugins'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
-      contents: read
+      contents: write
       packages: write
       id-token: write
     env:
@@ -126,7 +126,7 @@ jobs:
       - name: Publish exact MTC OCI media types
         working-directory: ${{ runner.temp }}/plugin-package
         run: |
-          oras push "$PLUGIN_SOURCE:sha-$GITHUB_SHA" \
+          oras push "$PLUGIN_SOURCE:sha-$GITHUB_SHA-run-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
             --artifact-type application/vnd.memeloop.token-center.plugin.v1 \
             --config config.json:application/vnd.memeloop.token-center.plugin.config.v1+json \
             --annotation "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
@@ -179,6 +179,10 @@ jobs:
             --registry-password-file /registry/password \
             > "$RUNNER_TEMP/plugin-installation.json"
           node scripts/verify-playground-release.mjs "$RUNNER_TEMP"
+      - name: Publish immutable GitHub Release installation descriptor
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/publish-release-descriptor.mjs
       - name: Record production installation reference
         run: |
           {

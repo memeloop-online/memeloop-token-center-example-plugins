@@ -51,3 +51,23 @@ CI installs the npm lockfile, runs type checking and fixture tests, builds the W
 The same collector supports a Node service through `npm run serve`, exposing `GET /api/health-intelligence`. Source fetches have a four-second timeout, two retries, and a five-minute memory cache.
 
 Licensed under [Apache License 2.0](LICENSE).
+
+### Install from a GitHub Release URL
+
+Each reviewed `workflow_dispatch` publication on protected `master` publishes a
+GitHub Release containing `<plugin-id>.json`. Copy that asset's
+`https://github.com/memeloop-online/memeloop-token-center-example-plugins/releases/download/<tag>/<plugin-id>.json`
+URL into the token center's plugin installation page. The descriptor contains
+only format version 1, an immutable OCI digest reference, and the exact keyless
+signer issuer/identity. The host still verifies its own source policy and Cosign
+signature; a descriptor cannot authorize itself.
+
+Publish `publish.yml` for `mtc-health-intelligence`, `publish-playground.yml` for
+`mtc-text-playground`, and `publish-examples.yml` for `mtc-model-guard`,
+`mtc-preferred-account`, `mtc-soonest-reset`, `google-antigravity`, and
+`example-policy-rewrite`. All seven descriptors are actual Release assets,
+created after the official installer's clean-install verification. Tags include
+the plugin ID, full source revision, run ID and attempt. Assets and tags are never
+replaced; use the exact download URL from the successful run summary. The
+repository's shared latest release is intentionally not used for selecting a
+plugin. Publication does not activate any production plugin.
