@@ -68,6 +68,9 @@ describe('signed operator UI module', () => {
       origin: 'https://memeloop-online.github.io', fetched_at: now, source: 'fallback',
     } };
     const result = module.runtimeSnapshot(response, now);
+    expect(result.generatedAt).toBeNull();
+    expect(result.sources.every((source: { fetchedAt: unknown; sourceUpdatedAt: unknown }) => source.fetchedAt === null && source.sourceUpdatedAt === null)).toBe(true);
+    expect(response.data.generatedAt).toBe('1970-01-01T00:00:00.000Z');
     expect(result.sources.map((source: { id: string }) => source.id)).toEqual(['codexradar', 'deepswe', 'aixhan']);
     expect(result.sources.every((source: { status: string; rows: unknown[] }) => source.status === 'error' && source.rows.length === 0)).toBe(true);
   });

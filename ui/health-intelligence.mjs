@@ -43,7 +43,8 @@ export function runtimeSnapshot(response, now = Date.now()) {
   const data = response.data;
   const sources = snapshotSources(data);
   if (!response.partial && freshness === 'fresh') return data;
-  return { ...data, sources: sources.map((source) => ({ ...source,
+  return { ...data, ...(freshness === 'unavailable' ? { generatedAt: null } : {}), sources: sources.map((source) => ({ ...source,
+    ...(freshness === 'unavailable' ? { fetchedAt: null, sourceUpdatedAt: null } : {}),
     status: source.status === 'error' || freshness === 'unavailable' ? 'error' : 'stale',
   })) };
 }
@@ -58,9 +59,12 @@ const STRINGS = {
   openPage: { en: 'Open source page', zh: '打开来源页面' },
   fetchedAt: { en: 'Fetched', zh: '采集时间' },
   sourceUpdatedAt: { en: 'Source updated', zh: '来源更新' },
-  emptyRows: { en: 'Awaiting source records', zh: '等待来源记录' },
+  emptyRows: { en: 'No source records available', zh: '暂无来源记录' },
   emptySources: { en: 'Awaiting source data', zh: '等待来源数据' },
   updated: { en: 'Updated', zh: '更新于' },
+  unavailable: { en: 'Source data is currently unavailable. Collection retries automatically.', zh: '暂时无法获取来源数据，系统会自动重试采集。' },
+  refreshHelp: { en: 'Refresh reloads the latest collected data.', zh: '刷新会重新读取最近一次采集结果。' },
+  retryHelp: { en: 'Please retry. If the issue persists, check the plugin service status.', zh: '请重试；若问题持续，请检查插件服务状态。' },
   ok: { en: 'Updated', zh: '已更新' },
   stale: { en: 'Stale', zh: '数据偏旧' },
   error: { en: 'Error', zh: '异常' },
@@ -179,11 +183,13 @@ export function activateOperatorUi(host) {
       gap: tokens.spacingVerticalM,
       padding: tokens.spacingHorizontalL,
       minWidth: 0,
+      border: `1px solid ${tokens.colorNeutralStroke2}`,
+      borderRadius: tokens.borderRadiusLarge,
+      backgroundColor: tokens.colorNeutralBackground1,
     },
     cardHeader: {
       display: 'flex',
-      alignItems: 'flex-start',
-      justifyContent: 'space-between',
+      alignItems: 'center',
       gap: tokens.spacingHorizontalS,
       flexWrap: 'wrap',
     },
@@ -260,7 +266,7 @@ export function activateOperatorUi(host) {
 
     const formatDate = (value) => {
       const time = Date.parse(value);
-      return Number.isFinite(time) ? formats.date.format(new Date(time)) : '—';
+      return Number.isFinite(time) && time > 0 ? formats.date.format(new Date(time)) : '—';
     };
 
     const formatCell = (column, value) => {
@@ -305,7 +311,7 @@ export function activateOperatorUi(host) {
           refreshButton),
         h('div', { className: styles.center, role: 'alert' },
           h(Text, { size: 400, weight: 'semibold' }, text(STRINGS.loadFailed)),
-          h(Caption1, null, failure && failure.message ? String(failure.message) : ''),
+          h(Caption1, null, text(STRINGS.retryHelp)),
           h(Button, { appearance: 'secondary', onClick: reload }, text(STRINGS.tryAgain))));
     }
 
@@ -334,7 +340,7 @@ export function activateOperatorUi(host) {
         `${text(STRINGS.fetchedAt)}: ${formatDate(source.fetchedAt)}`,
         `${text(STRINGS.sourceUpdatedAt)}: ${formatDate(source.sourceUpdatedAt)}`,
       ];
-      if (source.error) metaItems.push(String(source.error));
+      if (source.error) metaItems.push(text(STRINGS.unavailable));
       return h('section', { key: source.id || source.label, className: styles.card },
         h('div', { className: styles.cardHeader },
           h(Text, { as: 'h3', size: 500, weight: 'semibold' }, source.label),
@@ -356,6 +362,7 @@ export function activateOperatorUi(host) {
             : null,
           refreshing ? h(Spinner, { size: 'tiny' }) : null,
           refreshButton)),
+      h(Caption1, null, text(STRINGS.refreshHelp)),
       sources.length === 0
         ? h('div', { className: styles.center, role: 'status' },
             h(Caption1, null, text(STRINGS.emptySources)))
