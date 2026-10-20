@@ -1,5 +1,5 @@
 const PLUGIN_ID = 'mtc-health-intelligence';
-const PLUGIN_VERSIONS = ['1.1.0', '1.2.0'];
+const PLUGIN_VERSIONS = ['1.1.0', '1.2.0', '1.2.1'];
 const COMPONENT_ID = 'health-intelligence';
 const ENDPOINT_ID = 'health-intelligence';
 const TICK_INTERVAL_MS = 30 * 1000;

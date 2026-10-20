@@ -604,14 +604,14 @@ dependencies = [
 
 [[package]]
 name = "health-componentize"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "wit-component",
 ]
 
 [[package]]
 name = "health-host-harness"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "base64",
  "jsonschema",
@@ -915,7 +915,7 @@ checksum = "c2a86d3146ed3995b5913c414f6664344b9617457320782e64f0bb44afd49d74"
 
 [[package]]
 name = "mtc-health-component"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "base64",
  "chrono",

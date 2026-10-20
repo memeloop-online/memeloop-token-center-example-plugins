@@ -1,6 +1,6 @@
 # Health service-data runtime contract
 
-The 1.2.0 manifest selects the real Rust Wasm component in `component/` through
+The 1.2.1 manifest selects the real Rust Wasm component in `component/` through
 `component_adapter`. The Node runtime remains a reference implementation and
 Pages remains a separate public snapshot. The installed UI reads the host
 service-data envelope.

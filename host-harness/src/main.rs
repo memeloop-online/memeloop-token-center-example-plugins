@@ -24,7 +24,7 @@ impl memeloop::token_center::host::Host for State {
         assert!(body.is_empty());
         let headers: Value = serde_json::from_str(&headers).unwrap();
         assert_eq!(headers.as_object().unwrap().len(), 2);
-        assert_eq!(headers["user-agent"], "mtc-health-intelligence/1.2 (public-readonly)");
+        assert_eq!(headers["user-agent"], "mtc-health-intelligence/1.2.1 (public-readonly)");
         let config: Value = serde_json::from_str(include_str!("../../component/sources.json")).unwrap();
         let source = config["sources"].as_array().unwrap().iter()
             .find(|s| s["endpoint"] == url || s["robotsUrl"] == url).expect("exact approved URL");

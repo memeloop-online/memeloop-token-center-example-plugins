@@ -122,7 +122,7 @@ fn robots_allowed(body: &str, path: &str) -> bool {
 }
 fn request(url: &str, robots: bool) -> Result<(Vec<u8>, Option<String>), String> {
     let headers = json!({"accept":if robots {"text/plain"} else {"application/json"},
-        "user-agent":"mtc-health-intelligence/1.2 (public-readonly)"}).to_string();
+        "user-agent":"mtc-health-intelligence/1.2.1 (public-readonly)"}).to_string();
     let bytes = memeloop::token_center::host::http_request("GET",url,&headers,&[]).map_err(|_| "network")?;
     let envelope: Value = serde_json::from_slice(&bytes).map_err(|_| "invalid_http_envelope")?;
     let status = envelope["status"].as_u64().ok_or("invalid_http_envelope")?;
