@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use wasmtime::{Config, Engine, Store, StoreLimits, StoreLimitsBuilder};
 use wasmtime::component::{Component, HasSelf, Linker};
 wasmtime::component::bindgen!({ path: "../wit", world: "service-data-plugin" });
-const FUEL: u64 = 5_000_000;
+const FUEL: u64 = 100_000_000;
 const MEMORY: usize = 32 * 1024 * 1024;
 const BODY_LIMIT: usize = 1_048_576;
 const TIMEOUT: Duration = Duration::from_millis(30000);
@@ -35,25 +35,35 @@ impl memeloop::token_center::host::Host for State {
         if !robots { self.data_calls += 1; }
         if robots && method == "HEAD" && self.mode == "head_network" { return Err("private transport exception".into()); }
         if !robots && self.mode == "network" { return Err("private transport exception".into()); }
-        let mut bytes = if robots { self.robots.as_bytes().to_vec() }
+        let mut bytes = if robots { if self.mode == "robots_denied_one" && source["source"] == "codexradar" {b"User-agent: *\nDisallow: /\n".to_vec()} else {self.robots.as_bytes().to_vec()} }
             else { std::fs::read(format!("test/fixtures/{}.json", source["source"].as_str().unwrap())).unwrap() };
         if !robots && self.mode == "mixed" && source["source"] == "aixhan" {
             bytes = serde_json::to_vec(&json!({"providerTimelines":[
                 {"latest":{"id":"mixed-one","name":"older","status":"error","checkedAt":"2026-09-07T15:00:00+08:00"},
-                 "items":[{"id":"mixed-one","name":"newer","status":"operational","checkedAt":"2026-09-07T08:00:00Z"}]},
+                 "items":[{"id":"mixed-one","name":"earlier-tie","status":"error","checkedAt":"2026-09-07T08:00:00Z"},
+                          {"id":"mixed-one","name":"newer","status":"operational","checkedAt":"2026-09-07T16:00:00+08:00"}]},
                 {"items":[{"id":"mixed-two","name":"second","status":"degraded","checkedAt":"2026-09-07T08:30:00Z"}]}
             ]})).unwrap();
         }
-        if robots && method == "GET" && source["source"] == "codexradar" && matches!(self.mode, "robots_html_large" | "robots_text_large") {
+        if robots && method == "GET" && matches!(self.mode, "robots_html_large" | "robots_text_large") {
             bytes = vec![b'x'; if self.mode == "robots_html_large" {916_003} else {65_537}];
         }
-        if !robots && self.mode == "public_sizes" {
-            bytes = public_size_fixture(source["source"].as_str().unwrap(), bytes);
+        if !robots && matches!(self.mode, "public_sizes" | "near_cap") {
+            bytes = public_size_fixture(source["source"].as_str().unwrap(), bytes, self.mode == "near_cap");
+        }
+        if !robots && self.mode == "body_cap" && source["source"] == "codexradar" { return Err("response body limit".into()); }
+        if !robots && self.mode == "best_after_24" && source["source"] == "codexradar" {
+            let mut value: Value = serde_json::from_slice(&bytes).unwrap();
+            let mut row = value["comprehensive_points"][0].clone();
+            let mut points = vec![row.clone(); 30];
+            row["model"] = json!("last-best"); row["iq"] = json!(200);
+            points.push(row); value["comprehensive_points"] = json!(points);
+            bytes = serde_json::to_vec(&value).unwrap();
         }
         let content_length = bytes.len();
         if method == "HEAD" { bytes.clear(); }
         assert!(bytes.len() <= BODY_LIMIT, "same host response body cap");
-        let mut envelope = json!({"status": if self.mode == "http_failure" {503} else if method == "HEAD" && self.mode == "head_405" {405} else if method == "HEAD" && self.mode == "head_501" {501} else if method == "HEAD" && self.mode == "head_forbidden" {403} else if robots && self.mode == "robots_missing" {404} else if robots && self.mode == "robots_gone" {410} else {200},
+        let mut envelope = json!({"status": if self.mode == "http_failure" || (!robots && ((self.mode == "partial_0" && source["source"] == "codexradar") || (self.mode == "partial_1" && source["source"] == "deepswe") || (self.mode == "partial_2" && source["source"] == "aixhan"))) {503} else if method == "HEAD" && self.mode == "head_405" {405} else if method == "HEAD" && self.mode == "head_501" {501} else if method == "HEAD" && self.mode == "head_forbidden" {403} else if robots && self.mode == "robots_missing" {404} else if robots && self.mode == "robots_gone" {410} else {200},
             "headers":{"content-type":if (!robots && self.mode == "html") || (robots && self.mode == "robots_html_large") {"text/html"} else if robots {"text/plain"} else {"application/json"},
                 "content-length":if robots && self.mode == "robots_html_large" {916_003} else {content_length},
                 "date":"Mon, 07 Sep 2026 07:44:00 GMT"}, "body_base64":STANDARD.encode(bytes)});
@@ -65,7 +75,7 @@ impl memeloop::token_center::host::Host for State {
 }
 // Synthetic public shapes retain observed array counts and exact response sizes,
 // without storing upstream bodies or identifying provider data.
-fn public_size_fixture(source: &str, bytes: Vec<u8>) -> Vec<u8> {
+fn public_size_fixture(source: &str, bytes: Vec<u8>, near_cap: bool) -> Vec<u8> {
     let mut value: Value = serde_json::from_slice(&bytes).unwrap();
     let target = match source {
         "deepswe" => {
@@ -79,11 +89,11 @@ fn public_size_fixture(source: &str, bytes: Vec<u8>) -> Vec<u8> {
                 let mut t = timeline.clone();
                 t["id"] = json!(format!("synthetic-{i}"));
                 let item = t["items"][0].clone();
-                t["items"] = json!(vec![item.clone(); 40]);
+                t["items"] = json!(vec![item.clone(); if near_cap {100} else {40}]);
                 t["latest"] = item;
                 t
             }).collect::<Vec<_>>());
-            275_580
+            if near_cap {950_000} else {275_580}
         },
         _ => return bytes,
     };
@@ -120,23 +130,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input = include_str!("../../component/sources.json");
     let allow = "User-agent: *\nAllow: /\n";
     let mut fuel_used = 0;
+    let mut measurements = Vec::new();
     let manifest: Value = serde_json::from_str(include_str!("../../plugin.json"))?;
     assert_eq!(manifest["contributions"]["service_data"][0]["timeout_millis"], TIMEOUT.as_millis() as u64);
-    for mode in ["fixture", "mixed", "robots_missing", "robots_gone", "robots_html_large", "head_405", "head_501", "public_sizes"] {
+    for mode in ["fixture", "mixed", "robots_missing", "robots_gone", "robots_html_large", "head_405", "head_501", "public_sizes", "near_cap", "best_after_24", "partial_0", "partial_1", "partial_2", "robots_denied_one", "body_cap"] {
         println!("bounded component scenario: {mode}");
         let (mut store, bindings) = execution(&engine, &component, &linker, mode, allow)?;
         let guest = bindings.memeloop_token_center_service_data_v1();
         let collected = guest.call_collect(&mut store, "health-three-source-v1", input)?.expect("bounded real component collect");
+        let collect_fuel = FUEL - store.get_fuel()?;
         assert!(collected.len() <= BODY_LIMIT);
+        assert!(collected.len() < 65_536, "compact boundary must not contain raw source bodies");
         let no_robots_get = matches!(mode, "robots_missing" | "robots_gone" | "robots_html_large");
-        assert_eq!(store.data().data_calls, 3);
+        assert_eq!(store.data().data_calls, if mode == "robots_denied_one" {2} else {3});
         assert_eq!(store.data().robots_gets, if no_robots_get {0} else {3});
-        assert_eq!(store.data().calls, if no_robots_get {6} else {9});
+        assert_eq!(store.data().calls, if no_robots_get {6} else if mode == "robots_denied_one" {8} else {9});
         let normalized = guest.call_normalize(&mut store, "health-snapshot-v1", input, &collected)?.expect("bounded real component normalize");
         assert!(normalized.len() <= BODY_LIMIT);
         assert!(Instant::now() < store.data().deadline);
         let snapshot: Value = serde_json::from_str(&normalized)?;
         assert_eq!(snapshot["sources"].as_array().unwrap().len(), 3);
+        let full_fuel = FUEL - store.get_fuel()?;
+        measurements.push(json!({"scenario":mode,"collect_fuel":collect_fuel,"normalize_fuel":full_fuel-collect_fuel,"full_fuel":full_fuel,"compact_bytes":collected.len()}));
+        println!("scenario {mode}: collect {collect_fuel}, full {full_fuel}/{FUEL}");
+        if mode.starts_with("partial_") || mode == "robots_denied_one" || mode == "body_cap" {
+            let failed = if mode == "partial_1" {1} else if mode == "partial_2" {2} else {0};
+            for (i, source) in snapshot["sources"].as_array().unwrap().iter().enumerate() {
+                assert_eq!(source["status"], if i == failed {"error"} else {"ok"});
+                if i == failed {
+                    assert_eq!(source["fetchedAt"], ""); assert!(source["sourceUpdatedAt"].is_null());
+                    assert!(source["rows"].as_array().unwrap().is_empty());
+                    assert_eq!(source["error"], if mode == "robots_denied_one" {"robots_denied"} else if mode == "body_cap" {"network"} else {"http_status"});
+                } else { assert!(!source["rows"].as_array().unwrap().is_empty()); }
+            }
+        }
+        if mode == "best_after_24" { assert_eq!(snapshot["sources"][0]["rows"][0]["model"], "last-best"); }
         if mode == "fixture" {
             fuel_used = FUEL - store.get_fuel()?;
             std::fs::write("component-snapshot.json", normalized)?;
@@ -153,21 +181,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for robots in ["User-agent: *\n\n# comment\nDisallow: /\n",
         "User-agent: *\nDisallow: /\n\nUser-agent: other\nAllow: /\n"] {
         let (mut store, bindings) = execution(&engine, &component, &linker, "fixture", robots)?;
-        assert_eq!(bindings.memeloop_token_center_service_data_v1().call_collect(&mut store, "health-three-source-v1", input)?.unwrap_err(), "robots_denied");
-        assert_eq!((store.data().calls, store.data().data_calls), (2, 0), "denial must produce zero data requests");
+        assert_eq!(bindings.memeloop_token_center_service_data_v1().call_collect(&mut store, "health-three-source-v1", input)?.unwrap_err(), "all_sources_failed");
+        assert_eq!((store.data().calls, store.data().data_calls), (6, 0), "denial must produce zero data requests");
     }
-    for (mode, expected) in [("http_failure", "http_status"), ("base64", "invalid_http_envelope"),
+    for (mode, _expected) in [("http_failure", "http_status"), ("base64", "invalid_http_envelope"),
         ("head_forbidden", "http_status"), ("head_network", "network"), ("robots_text_large", "body_limit"), ("missing_date", "missing_source_date"), ("html", "content_type"), ("network", "network")] {
         let (mut store, bindings) = execution(&engine, &component, &linker, mode, allow)?;
-        assert_eq!(bindings.memeloop_token_center_service_data_v1().call_collect(&mut store, "health-three-source-v1", input)?.unwrap_err(), expected);
+        assert_eq!(bindings.memeloop_token_center_service_data_v1().call_collect(&mut store, "health-three-source-v1", input)?.unwrap_err(), "all_sources_failed");
     }
+    let (mut deadline_store, deadline_bindings) = execution(&engine, &component, &linker, "fixture", allow)?;
+    deadline_store.data_mut().deadline = Instant::now();
+    assert_eq!(deadline_bindings.memeloop_token_center_service_data_v1().call_collect(&mut deadline_store, "health-three-source-v1", input)?.unwrap_err(), "all_sources_failed");
+    let (mut trapped_store, trapped_bindings) = execution(&engine, &component, &linker, "fixture", allow)?;
+    trapped_store.set_fuel(0)?;
+    assert!(trapped_bindings.memeloop_token_center_service_data_v1().call_collect(&mut trapped_store, "health-three-source-v1", input).is_err(), "fuel traps never become partial successes");
     let (mut store, bindings) = execution(&engine, &component, &linker, "fixture", allow)?;
     let guest = bindings.memeloop_token_center_service_data_v1();
     assert!(guest.call_collect(&mut store, "health-three-source-v1", "{}")?.is_err());
     assert_eq!(store.data().calls, 0);
     assert!(guest.call_normalize(&mut store, "health-snapshot-v1", input, "[]")?.is_err());
     std::fs::write("component-bounds.json", serde_json::to_vec_pretty(&json!({
-        "fuel":FUEL,"fixture_fuel_used":fuel_used,"memory_bytes":MEMORY,"timeout_millis":TIMEOUT.as_millis(),
+        "fuel":FUEL,"fixture_fuel_used":fuel_used,"measurements":measurements,"requires_service_data_fuel":100000000,"memory_bytes":MEMORY,"timeout_millis":TIMEOUT.as_millis(),
         "epoch_tick_millis":10,"body_limit":BODY_LIMIT,"shared_collect_normalize_budget":true,
         "robots_html_over_text_limit":true,"html_robots_content_length":916003,"html_robots_gets":0,"head_405_501_fallback":true,"public_response_sizes":[94758,275580],"robots_text_over_limit_rejected":true,"robots_404_410":true,
         "mixed_offset_ordering":true,"robots_denied_data_requests":0,"http_envelope_negatives":true
