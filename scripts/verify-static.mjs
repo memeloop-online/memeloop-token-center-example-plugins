@@ -36,7 +36,7 @@ assert.deepEqual(endpoint.component_adapter, { api_version: 'component-v1', coll
 assert.equal(endpoint.required_scope, 'metrics:read');
 assert.deepEqual(endpoint.response_schema, reviewedSchema);
 assert.equal(endpoint.cache_ttl_seconds, 300);
-assert.equal(endpoint.timeout_millis, 4000);
+assert.equal(endpoint.timeout_millis, 30000);
 assert.equal(endpoint.max_body_bytes, 1_048_576);
 assert.equal(endpoint.fallback.schemaVersion, 1);
 assert.deepEqual(endpoint.fallback.sources.map((source) => source.id), ['codexradar', 'deepswe', 'aixhan']);

@@ -194,7 +194,7 @@
           ]
         },
         "cache_ttl_seconds": 300,
-        "timeout_millis": 4000,
+        "timeout_millis": 30000,
         "max_body_bytes": 1048576,
         "component_adapter": {
           "api_version": "component-v1",

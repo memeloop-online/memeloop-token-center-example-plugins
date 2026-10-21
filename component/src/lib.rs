@@ -128,13 +128,13 @@ fn request(url: &str, robots: bool) -> Result<(Vec<u8>, Option<String>), String>
     let status = envelope["status"].as_u64().ok_or("invalid_http_envelope")?;
     if robots && (status == 404 || status == 410) { return Ok((vec![],None)); }
     if !(200..300).contains(&status) { return Err("http_status".into()); }
-    let body = STANDARD.decode(envelope["body_base64"].as_str().ok_or("invalid_http_envelope")?).map_err(|_| "invalid_http_envelope")?;
-    if body.len() > if robots {65536} else {1048576} { return Err("body_limit".into()); }
     let content_type = envelope["headers"]["content-type"].as_str().unwrap_or("").to_lowercase();
     if content_type.contains("text/html") {
         if robots { return Ok((vec![],None)); }
         return Err("content_type".into());
     }
+    let body = STANDARD.decode(envelope["body_base64"].as_str().ok_or("invalid_http_envelope")?).map_err(|_| "invalid_http_envelope")?;
+    if body.len() > if robots {65536} else {1048576} { return Err("body_limit".into()); }
     let fetched = envelope["headers"]["date"].as_str().and_then(|v| DateTime::parse_from_rfc2822(v).ok()).map(|v| v.with_timezone(&chrono::Utc).to_rfc3339_opts(SecondsFormat::Millis,true));
     Ok((body,fetched))
 }

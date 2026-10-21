@@ -7,7 +7,7 @@ wasmtime::component::bindgen!({ path: "../wit", world: "service-data-plugin" });
 const FUEL: u64 = 5_000_000;
 const MEMORY: usize = 32 * 1024 * 1024;
 const BODY_LIMIT: usize = 1_048_576;
-const TIMEOUT: Duration = Duration::from_millis(4000);
+const TIMEOUT: Duration = Duration::from_millis(30000);
 const EPOCH_TICK: Duration = Duration::from_millis(10);
 struct State {
     mode: &'static str, calls: usize, data_calls: usize, robots: &'static str,
@@ -41,9 +41,12 @@ impl memeloop::token_center::host::Host for State {
                 {"items":[{"id":"mixed-two","name":"second","status":"degraded","checkedAt":"2026-09-07T08:30:00Z"}]}
             ]})).unwrap();
         }
+        if robots && source["source"] == "codexradar" && matches!(self.mode, "robots_html_large" | "robots_text_large") {
+            bytes = vec![b'x'; if self.mode == "robots_html_large" {916_003} else {65_537}];
+        }
         assert!(bytes.len() <= BODY_LIMIT, "same host response body cap");
-        let mut envelope = json!({"status": if self.mode == "http_failure" {503} else if robots && self.mode == "robots_missing" {404} else {200},
-            "headers":{"content-type":if !robots && self.mode == "html" {"text/html"} else if robots {"text/plain"} else {"application/json"},
+        let mut envelope = json!({"status": if self.mode == "http_failure" {503} else if robots && self.mode == "robots_missing" {404} else if robots && self.mode == "robots_gone" {410} else {200},
+            "headers":{"content-type":if (!robots && self.mode == "html") || (robots && self.mode == "robots_html_large") {"text/html"} else if robots {"text/plain"} else {"application/json"},
                 "date":"Mon, 07 Sep 2026 07:44:00 GMT"}, "body_base64":STANDARD.encode(bytes)});
         if !robots && self.mode == "base64" { envelope["body_base64"] = json!("%%%invalid%%%"); }
         if !robots && self.mode == "missing_date" { envelope["headers"].as_object_mut().unwrap().remove("date"); }
@@ -60,7 +63,7 @@ fn execution(engine: &Engine, component: &Component, linker: &Linker<State>, mod
     let mut store = Store::new(engine, State { mode, calls: 0, data_calls: 0, robots, limits, deadline: Instant::now() + TIMEOUT });
     store.limiter(|s| &mut s.limits);
     store.set_fuel(FUEL)?;
-    store.set_epoch_deadline(400);
+    store.set_epoch_deadline(TIMEOUT.as_millis().div_ceil(EPOCH_TICK.as_millis()) as u64);
     let bindings = ServiceDataPlugin::instantiate(&mut store, component, linker)?;
     Ok((store, bindings))
 }
@@ -76,7 +79,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input = include_str!("../../component/sources.json");
     let allow = "User-agent: *\nAllow: /\n";
     let mut fuel_used = 0;
-    for mode in ["fixture", "mixed", "robots_missing"] {
+    let manifest: Value = serde_json::from_str(include_str!("../../plugin.json"))?;
+    assert_eq!(manifest["contributions"]["service_data"][0]["timeout_millis"], TIMEOUT.as_millis() as u64);
+    for mode in ["fixture", "mixed", "robots_missing", "robots_gone", "robots_html_large"] {
         let (mut store, bindings) = execution(&engine, &component, &linker, mode, allow)?;
         let guest = bindings.memeloop_token_center_service_data_v1();
         let collected = guest.call_collect(&mut store, "health-three-source-v1", input)?.expect("bounded real component collect");
@@ -107,7 +112,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         assert_eq!((store.data().calls, store.data().data_calls), (1, 0), "denial must produce zero data requests");
     }
     for (mode, expected) in [("http_failure", "http_status"), ("base64", "invalid_http_envelope"),
-        ("missing_date", "missing_source_date"), ("html", "content_type"), ("network", "network")] {
+        ("robots_text_large", "body_limit"), ("missing_date", "missing_source_date"), ("html", "content_type"), ("network", "network")] {
         let (mut store, bindings) = execution(&engine, &component, &linker, mode, allow)?;
         assert_eq!(bindings.memeloop_token_center_service_data_v1().call_collect(&mut store, "health-three-source-v1", input)?.unwrap_err(), expected);
     }
@@ -117,8 +122,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(store.data().calls, 0);
     assert!(guest.call_normalize(&mut store, "health-snapshot-v1", input, "[]")?.is_err());
     std::fs::write("component-bounds.json", serde_json::to_vec_pretty(&json!({
-        "fuel":FUEL,"fixture_fuel_used":fuel_used,"memory_bytes":MEMORY,"timeout_millis":4000,
+        "fuel":FUEL,"fixture_fuel_used":fuel_used,"memory_bytes":MEMORY,"timeout_millis":TIMEOUT.as_millis(),
         "epoch_tick_millis":10,"body_limit":BODY_LIMIT,"shared_collect_normalize_budget":true,
+        "robots_html_over_text_limit":true,"robots_text_over_limit_rejected":true,"robots_404_410":true,
         "mixed_offset_ordering":true,"robots_denied_data_requests":0,"http_envelope_negatives":true
     }))?)?;
     println!("actual bounded Wasmtime component: fixture fuel {fuel_used}/{FUEL}, mixed offsets, robots zero data requests, envelope failures");
