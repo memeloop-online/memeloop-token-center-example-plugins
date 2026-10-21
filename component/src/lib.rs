@@ -120,22 +120,30 @@ fn robots_allowed(body: &str, path: &str) -> bool {
     }
     best.is_none_or(|(_,yes)| yes)
 }
+// Borrow the potentially large base64 body rather than copying it into a JSON Value.
+#[derive(Deserialize)]
+struct HttpEnvelope<'a> {
+    status: u64,
+    headers: Value,
+    #[serde(borrow)]
+    body_base64: Option<&'a str>,
+}
 fn request(url: &str, robots: bool) -> Result<(Vec<u8>, Option<String>), String> {
     let headers = json!({"accept":if robots {"text/plain"} else {"application/json"},
         "user-agent":"mtc-health-intelligence/1.2.1 (public-readonly)"}).to_string();
     let bytes = memeloop::token_center::host::http_request("GET",url,&headers,&[]).map_err(|_| "network")?;
-    let envelope: Value = serde_json::from_slice(&bytes).map_err(|_| "invalid_http_envelope")?;
-    let status = envelope["status"].as_u64().ok_or("invalid_http_envelope")?;
+    let envelope: HttpEnvelope = serde_json::from_slice(&bytes).map_err(|_| "invalid_http_envelope")?;
+    let status = envelope.status;
     if robots && (status == 404 || status == 410) { return Ok((vec![],None)); }
     if !(200..300).contains(&status) { return Err("http_status".into()); }
-    let content_type = envelope["headers"]["content-type"].as_str().unwrap_or("").to_lowercase();
+    let content_type = envelope.headers["content-type"].as_str().unwrap_or("").to_lowercase();
     if content_type.contains("text/html") {
         if robots { return Ok((vec![],None)); }
         return Err("content_type".into());
     }
-    let body = STANDARD.decode(envelope["body_base64"].as_str().ok_or("invalid_http_envelope")?).map_err(|_| "invalid_http_envelope")?;
+    let body = STANDARD.decode(envelope.body_base64.ok_or("invalid_http_envelope")?).map_err(|_| "invalid_http_envelope")?;
     if body.len() > if robots {65536} else {1048576} { return Err("body_limit".into()); }
-    let fetched = envelope["headers"]["date"].as_str().and_then(|v| DateTime::parse_from_rfc2822(v).ok()).map(|v| v.with_timezone(&chrono::Utc).to_rfc3339_opts(SecondsFormat::Millis,true));
+    let fetched = envelope.headers["date"].as_str().and_then(|v| DateTime::parse_from_rfc2822(v).ok()).map(|v| v.with_timezone(&chrono::Utc).to_rfc3339_opts(SecondsFormat::Millis,true));
     Ok((body,fetched))
 }
 impl exports::memeloop::token_center::service_data_v1::Guest for Collector {
