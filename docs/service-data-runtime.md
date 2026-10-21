@@ -64,7 +64,7 @@ with status, headers and `body_base64`. Collect and normalize share one host
 execution deadline and body cap. No additional host API or SDK major is needed.
 
 The component accepts only the exact approved configuration in
-`component/sources.json`, also embedded in the signed manifest. HTTP uses fixed
+`component/sources.json`, also embedded in the signed manifest. HTTP uses
 fixed public GET/HEAD headers and no automatic retries. HEAD is restricted to the exact robots endpoints: successful HTML metadata and 404/410 skip the robots body, text robots use GET with the existing 65KiB limit, and HEAD 405/501 falls back to bounded GET. Other HEAD failures remain source errors. Robots and data requests for all
 three sources and normalization share the host execution deadline; endpoint
 `timeout_millis` is 30000, further bounded by the host execution timeout. Ordinary request, robots, JSON and normalization failures are isolated per source with a fixed error code, empty rows and unknown (empty) fetchedAt. Successful sources retain their actual HTTP Date and rows. All sources failing returns an error, preserving the host's durable last-good endpoint snapshot; Wasm traps also remain whole-call failures. Collection normalizes all input rows before ranking and truncating to 24, then emits a compact intermediate payload. Normalize validates its source order, dates, safe errors and canonical bounded rows before producing the unchanged public schema.
@@ -77,7 +77,7 @@ continues to evaluate source observation age and host freshness separately.
 
 The existing verify workflow builds the actual component, executes it in
 Wasmtime with the new service-data-only host budget of 100,000,000 shared fuel, 32 MiB memory and a shared 30000 ms
-epoch/HTTP deadline. This package requires that new host budget; the previous 5,000,000-fuel host is not sufficient for the observed source sizes. Traffic plugin fuel remains unchanged in the host. Scenarios cover mixed-offset latest-observation ordering,
+epoch/HTTP deadline. Representative observed-size fixtures use about 41.6M fuel; a structured combined-source near-1MiB case uses about 95.0M, leaving only about 5% headroom. These measurements do not guarantee every legal 1MiB JSON body will fit: exhaustion remains a bounded whole-call failure. This package requires that new host budget; the previous 5,000,000-fuel host is not sufficient for the observed source sizes. Traffic plugin fuel remains unchanged in the host. Scenarios cover mixed-offset latest-observation ordering,
 robots denial with zero data calls, malformed base64, missing Date, HTML, HTTP
 status and redacted transport failures. CI compares normalized rows with the Node
 reference, and checks WIT equality against the pinned host. The exact manifest, fallback

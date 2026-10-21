@@ -60,6 +60,8 @@ impl memeloop::token_center::host::Host for State {
             points.push(row); value["comprehensive_points"] = json!(points);
             bytes = serde_json::to_vec(&value).unwrap();
         }
+        if !robots && source["source"] == "codexradar" && self.mode == "partial_json" { bytes = b"not-json".to_vec(); }
+        if !robots && source["source"] == "codexradar" && self.mode == "partial_shape" { bytes = b"{}".to_vec(); }
         let content_length = bytes.len();
         if method == "HEAD" { bytes.clear(); }
         assert!(bytes.len() <= BODY_LIMIT, "same host response body cap");
@@ -68,7 +70,7 @@ impl memeloop::token_center::host::Host for State {
                 "content-length":if robots && self.mode == "robots_html_large" {916_003} else {content_length},
                 "date":"Mon, 07 Sep 2026 07:44:00 GMT"}, "body_base64":STANDARD.encode(bytes)});
         if !robots && self.mode == "base64" { envelope["body_base64"] = json!("%%%invalid%%%"); }
-        if !robots && self.mode == "missing_date" { envelope["headers"].as_object_mut().unwrap().remove("date"); }
+        if !robots && (self.mode == "missing_date" || (self.mode == "partial_date" && source["source"] == "codexradar")) { envelope["headers"].as_object_mut().unwrap().remove("date"); }
         if Instant::now() >= self.deadline { return Err("plugin execution deadline exceeded".into()); }
         Ok(serde_json::to_vec(&envelope).unwrap())
     }
@@ -134,7 +136,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut snapshots = Vec::new();
     let manifest: Value = serde_json::from_str(include_str!("../../plugin.json"))?;
     assert_eq!(manifest["contributions"]["service_data"][0]["timeout_millis"], TIMEOUT.as_millis() as u64);
-    for mode in ["fixture", "mixed", "robots_missing", "robots_gone", "robots_html_large", "head_405", "head_501", "public_sizes", "near_cap", "best_after_24", "partial_0", "partial_1", "partial_2", "robots_denied_one", "body_cap"] {
+    for mode in ["fixture", "mixed", "robots_missing", "robots_gone", "robots_html_large", "head_405", "head_501", "public_sizes", "near_cap", "best_after_24", "partial_0", "partial_1", "partial_2", "partial_json", "partial_shape", "partial_date", "robots_denied_one", "body_cap"] {
         println!("bounded component scenario: {mode}");
         let (mut store, bindings) = execution(&engine, &component, &linker, mode, allow)?;
         let guest = bindings.memeloop_token_center_service_data_v1();
@@ -162,7 +164,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if i == failed {
                     assert_eq!(source["fetchedAt"], ""); assert!(source["sourceUpdatedAt"].is_null());
                     assert!(source["rows"].as_array().unwrap().is_empty());
-                    assert_eq!(source["error"], if mode == "robots_denied_one" {"robots_denied"} else if mode == "body_cap" {"network"} else {"http_status"});
+                    assert_eq!(source["error"], if mode == "robots_denied_one" {"robots_denied"} else if mode == "body_cap" {"network"} else if mode == "partial_json" {"invalid_json"} else if mode == "partial_shape" {"invalid_payload"} else if mode == "partial_date" {"missing_source_date"} else {"http_status"});
                 } else { assert!(!source["rows"].as_array().unwrap().is_empty()); }
             }
         }
