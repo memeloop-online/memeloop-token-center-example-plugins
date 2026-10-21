@@ -84,7 +84,9 @@ reference, and checks WIT equality against the pinned host. The exact manifest, 
 and component output are checked against authoritative host/installer schemas
 using their pinned JSON Schema engine. These schema checks are not an official
 signed-install receipt. Installer trust pins verified master artifact run
-37914361285, source b1b0a01d2adcae6f94d7c51a228ff249a65cfdd3. The publish
+39623307318, source 48231e8409528d10072d2ca695ea4a2657dc17c7, with actual
+Cosign v3.1.4. Its installer OCI index is pinned by digest; official image
+SBOM/provenance verification is separate from the plugin package signature. The publish
 workflow packages those Wasm bytes, signs the exact OCI digest, and reinstalls
 with the official pinned installer on a GitHub Actions runner. Component build
 and release evidence include the Wasm digest. No local build/install is needed.
