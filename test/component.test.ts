@@ -85,6 +85,49 @@ describe('signed operator UI module', () => {
     expect(typeof componentPackage.components['health-intelligence']).toBe('function');
   });
 
+  it.each([
+    ['zh-CN', ['正常', '降级', '异常', '未知'], '未知'],
+    ['en-US', ['Operational', 'Degraded', 'Error', 'Unknown'], 'Unknown'],
+  ])('renders localized model statuses and safe unknown values for %s', async (locale, labels, unknownLabel) => {
+    const module = await import(url);
+    const statuses = ['operational', 'degraded', 'error', 'unknown',
+      'pending', 'ok', '__proto__', 'constructor', '', null, undefined, 42, false, {}];
+    const snapshot = { sources: [{
+      id: 'aixhan', label: 'CDK 模型健康', status: 'ok',
+      fetchedAt: new Date().toISOString(), rows: statuses.map((status) => ({ status })),
+    }, {
+      id: 'deepswe', label: 'DeepSWE 工程能力', status: 'ok',
+      fetchedAt: new Date().toISOString(), rows: [{ model: 'unknown', samples: 7, message: null }],
+    }] };
+    const tableCell = Symbol('TableCell');
+    const cells: unknown[] = [];
+    let stateIndex = 0;
+    const componentPackage = module.activateOperatorUi({
+      React: {
+        createElement: (type: unknown, _props: unknown, ...children: unknown[]) => {
+          if (type === tableCell) cells.push(...children);
+          return { type, children };
+        },
+        useEffect: () => {},
+        useMemo: (factory: () => unknown) => factory(),
+        useState: (initial: unknown) => {
+          const value = stateIndex++ === 0 ? snapshot
+            : initial === true ? false : typeof initial === 'function' ? initial() : initial;
+          return [value, () => {}];
+        },
+      },
+      Fluent: {
+        makeStyles: () => () => ({}), mergeClasses: () => '', tokens: {}, TableCell: tableCell,
+      },
+      defineOperatorUiPackage: (value: unknown) => value,
+    });
+    componentPackage.components['health-intelligence']({ locale, api: {} });
+    expect(cells).toEqual([
+      ...labels, ...statuses.slice(4).map(() => unknownLabel),
+      'unknown', '7', '—',
+    ]);
+  });
+
   it('accepts source HTTPS links and rejects executable or credential-bearing URLs', async () => {
     const module = await import(url);
     const pattern = new RegExp(schema.$defs.source.properties.pageUrl.pattern);

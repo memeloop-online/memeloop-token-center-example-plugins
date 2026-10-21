@@ -68,6 +68,9 @@ const STRINGS = {
   ok: { en: 'Updated', zh: '已更新' },
   stale: { en: 'Stale', zh: '数据偏旧' },
   error: { en: 'Error', zh: '异常' },
+  operational: { en: 'Operational', zh: '正常' },
+  degraded: { en: 'Degraded', zh: '降级' },
+  unknown: { en: 'Unknown', zh: '未知' },
   yes: { en: 'Yes', zh: '是' },
   no: { en: 'No', zh: '否' },
 };
@@ -270,6 +273,10 @@ export function activateOperatorUi(host) {
     };
 
     const formatCell = (column, value) => {
+      if (column === 'status') {
+        const status = ['operational', 'degraded', 'error', 'unknown'].includes(value) ? value : 'unknown';
+        return text(STRINGS[status]);
+      }
       if (value === null || value === undefined || value === '') return '—';
       if (DATE_COLUMNS.has(column)) return formatDate(value);
       if (typeof value === 'number') {
