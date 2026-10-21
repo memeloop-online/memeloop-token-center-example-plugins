@@ -197,8 +197,9 @@ fn valid_compact_rows(source: &Source, value: &CompactSource) -> bool {
     let key = match source.normalizer.as_str() { "codexradar_v1" => "comprehensive_points", "deepswe_v1" => "rows", _ => "providerTimelines" };
     let mut body = json!({});
     body[key] = json!(input);
-    rows(source, &body).is_ok_and(|(updated, rows)| rows == value.rows &&
-        (source.normalizer != "aixhan_v1" || updated == value.source_updated_at))
+    // sourceUpdatedAt covers all original observations, including rows removed
+    // by the 24-row ranking cap; its canonical date is validated separately.
+    rows(source, &body).is_ok_and(|(_, rows)| rows == value.rows)
 }
 impl exports::memeloop::token_center::service_data_v1::Guest for Collector {
     fn collect(id: String, input: String) -> Result<String,String> {
