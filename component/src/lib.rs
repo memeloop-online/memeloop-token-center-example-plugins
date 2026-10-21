@@ -131,6 +131,22 @@ struct HttpEnvelope<'a> {
 fn request(url: &str, robots: bool) -> Result<(Vec<u8>, Option<String>), String> {
     let headers = json!({"accept":if robots {"text/plain"} else {"application/json"},
         "user-agent":"mtc-health-intelligence/1.2.1 (public-readonly)"}).to_string();
+    if robots {
+        // Metadata-only preflight avoids downloading HTML app shells as robots text.
+        // Unsupported HEAD falls back to the same bounded GET rules below.
+        let bytes = memeloop::token_center::host::http_request("HEAD",url,&headers,&[]).map_err(|_| "network")?;
+        let envelope: HttpEnvelope = serde_json::from_slice(&bytes).map_err(|_| "invalid_http_envelope")?;
+        match envelope.status {
+            404 | 410 => return Ok((vec![],None)),
+            405 | 501 => {},
+            200..=299 => {
+                if envelope.headers["content-type"].as_str().unwrap_or("").to_lowercase().contains("text/html") {
+                    return Ok((vec![],None));
+                }
+            },
+            _ => return Err("http_status".into()),
+        }
+    }
     let bytes = memeloop::token_center::host::http_request("GET",url,&headers,&[]).map_err(|_| "network")?;
     let envelope: HttpEnvelope = serde_json::from_slice(&bytes).map_err(|_| "invalid_http_envelope")?;
     let status = envelope.status;

@@ -10,7 +10,7 @@ const BODY_LIMIT: usize = 1_048_576;
 const TIMEOUT: Duration = Duration::from_millis(30000);
 const EPOCH_TICK: Duration = Duration::from_millis(10);
 struct State {
-    mode: &'static str, calls: usize, data_calls: usize, robots: &'static str,
+    mode: &'static str, calls: usize, data_calls: usize, robots_gets: usize, robots: &'static str,
     limits: StoreLimits, deadline: Instant,
 }
 impl memeloop::token_center::host::Host for State {
@@ -20,7 +20,7 @@ impl memeloop::token_center::host::Host for State {
     fn http_request(&mut self, method: String, url: String, headers: String, body: Vec<u8>) -> Result<Vec<u8>, String> {
         if Instant::now() >= self.deadline { return Err("plugin execution deadline exceeded".into()); }
         self.calls += 1;
-        assert_eq!(method, "GET");
+        assert!(method == "HEAD" || method == "GET");
         assert!(body.is_empty());
         let headers: Value = serde_json::from_str(&headers).unwrap();
         assert_eq!(headers.as_object().unwrap().len(), 2);
@@ -30,7 +30,10 @@ impl memeloop::token_center::host::Host for State {
             .find(|s| s["endpoint"] == url || s["robotsUrl"] == url).expect("exact approved URL");
         let robots = source["robotsUrl"] == url;
         assert_eq!(headers["accept"], if robots { "text/plain" } else { "application/json" });
+        assert!(robots || method == "GET", "HEAD is only for exact robots endpoints");
+        if robots && method == "GET" { self.robots_gets += 1; }
         if !robots { self.data_calls += 1; }
+        if robots && method == "HEAD" && self.mode == "head_network" { return Err("private transport exception".into()); }
         if !robots && self.mode == "network" { return Err("private transport exception".into()); }
         let mut bytes = if robots { self.robots.as_bytes().to_vec() }
             else { std::fs::read(format!("test/fixtures/{}.json", source["source"].as_str().unwrap())).unwrap() };
@@ -41,12 +44,18 @@ impl memeloop::token_center::host::Host for State {
                 {"items":[{"id":"mixed-two","name":"second","status":"degraded","checkedAt":"2026-09-07T08:30:00Z"}]}
             ]})).unwrap();
         }
-        if robots && source["source"] == "codexradar" && matches!(self.mode, "robots_html_large" | "robots_text_large") {
+        if robots && method == "GET" && source["source"] == "codexradar" && matches!(self.mode, "robots_html_large" | "robots_text_large") {
             bytes = vec![b'x'; if self.mode == "robots_html_large" {916_003} else {65_537}];
         }
+        if !robots && self.mode == "public_sizes" {
+            bytes = public_size_fixture(source["source"].as_str().unwrap(), bytes);
+        }
+        let content_length = bytes.len();
+        if method == "HEAD" { bytes.clear(); }
         assert!(bytes.len() <= BODY_LIMIT, "same host response body cap");
-        let mut envelope = json!({"status": if self.mode == "http_failure" {503} else if robots && self.mode == "robots_missing" {404} else if robots && self.mode == "robots_gone" {410} else {200},
+        let mut envelope = json!({"status": if self.mode == "http_failure" {503} else if method == "HEAD" && self.mode == "head_405" {405} else if method == "HEAD" && self.mode == "head_501" {501} else if method == "HEAD" && self.mode == "head_forbidden" {403} else if robots && self.mode == "robots_missing" {404} else if robots && self.mode == "robots_gone" {410} else {200},
             "headers":{"content-type":if (!robots && self.mode == "html") || (robots && self.mode == "robots_html_large") {"text/html"} else if robots {"text/plain"} else {"application/json"},
+                "content-length":if robots && self.mode == "robots_html_large" {916_003} else {content_length},
                 "date":"Mon, 07 Sep 2026 07:44:00 GMT"}, "body_base64":STANDARD.encode(bytes)});
         if !robots && self.mode == "base64" { envelope["body_base64"] = json!("%%%invalid%%%"); }
         if !robots && self.mode == "missing_date" { envelope["headers"].as_object_mut().unwrap().remove("date"); }
@@ -54,13 +63,45 @@ impl memeloop::token_center::host::Host for State {
         Ok(serde_json::to_vec(&envelope).unwrap())
     }
 }
+// Synthetic public shapes retain observed array counts and exact response sizes,
+// without storing upstream bodies or identifying provider data.
+fn public_size_fixture(source: &str, bytes: Vec<u8>) -> Vec<u8> {
+    let mut value: Value = serde_json::from_slice(&bytes).unwrap();
+    let target = match source {
+        "deepswe" => {
+            let row = value["rows"][0].clone();
+            value["rows"] = json!((0..70).map(|i| { let mut r = row.clone(); r["model"] = json!(format!("synthetic-{i}")); r }).collect::<Vec<_>>());
+            94_758
+        },
+        "aixhan" => {
+            let timeline = value["providerTimelines"][0].clone();
+            value["providerTimelines"] = json!((0..14).map(|i| {
+                let mut t = timeline.clone();
+                t["id"] = json!(format!("synthetic-{i}"));
+                let item = t["items"][0].clone();
+                t["items"] = json!(vec![item.clone(); 40]);
+                t["latest"] = item;
+                t
+            }).collect::<Vec<_>>());
+            275_580
+        },
+        _ => return bytes,
+    };
+    value["synthetic_padding"] = json!("");
+    let size = serde_json::to_vec(&value).unwrap().len();
+    assert!(size <= target);
+    value["synthetic_padding"] = json!("x".repeat(target - size));
+    let bytes = serde_json::to_vec(&value).unwrap();
+    assert_eq!(bytes.len(), target);
+    bytes
+}
 // Every scenario receives a fresh host-equivalent store. Collect and normalize
 // share its fuel and deadline; neither gets a reset between the two calls.
 fn execution(engine: &Engine, component: &Component, linker: &Linker<State>, mode: &'static str, robots: &'static str)
     -> wasmtime::Result<(Store<State>, ServiceDataPlugin)> {
     let limits = StoreLimitsBuilder::new().memory_size(MEMORY).table_elements(100_000)
         .instances(8).tables(2).memories(2).build();
-    let mut store = Store::new(engine, State { mode, calls: 0, data_calls: 0, robots, limits, deadline: Instant::now() + TIMEOUT });
+    let mut store = Store::new(engine, State { mode, calls: 0, data_calls: 0, robots_gets: 0, robots, limits, deadline: Instant::now() + TIMEOUT });
     store.limiter(|s| &mut s.limits);
     store.set_fuel(FUEL)?;
     store.set_epoch_deadline(TIMEOUT.as_millis().div_ceil(EPOCH_TICK.as_millis()) as u64);
@@ -81,12 +122,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut fuel_used = 0;
     let manifest: Value = serde_json::from_str(include_str!("../../plugin.json"))?;
     assert_eq!(manifest["contributions"]["service_data"][0]["timeout_millis"], TIMEOUT.as_millis() as u64);
-    for mode in ["fixture", "mixed", "robots_missing", "robots_gone", "robots_html_large"] {
+    for mode in ["fixture", "mixed", "robots_missing", "robots_gone", "robots_html_large", "head_405", "head_501", "public_sizes"] {
+        println!("bounded component scenario: {mode}");
         let (mut store, bindings) = execution(&engine, &component, &linker, mode, allow)?;
         let guest = bindings.memeloop_token_center_service_data_v1();
         let collected = guest.call_collect(&mut store, "health-three-source-v1", input)?.expect("bounded real component collect");
         assert!(collected.len() <= BODY_LIMIT);
-        assert_eq!((store.data().calls, store.data().data_calls), (6, 3));
+        let no_robots_get = matches!(mode, "robots_missing" | "robots_gone" | "robots_html_large");
+        assert_eq!(store.data().data_calls, 3);
+        assert_eq!(store.data().robots_gets, if no_robots_get {0} else {3});
+        assert_eq!(store.data().calls, if no_robots_get {6} else {9});
         let normalized = guest.call_normalize(&mut store, "health-snapshot-v1", input, &collected)?.expect("bounded real component normalize");
         assert!(normalized.len() <= BODY_LIMIT);
         assert!(Instant::now() < store.data().deadline);
@@ -109,10 +154,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "User-agent: *\nDisallow: /\n\nUser-agent: other\nAllow: /\n"] {
         let (mut store, bindings) = execution(&engine, &component, &linker, "fixture", robots)?;
         assert_eq!(bindings.memeloop_token_center_service_data_v1().call_collect(&mut store, "health-three-source-v1", input)?.unwrap_err(), "robots_denied");
-        assert_eq!((store.data().calls, store.data().data_calls), (1, 0), "denial must produce zero data requests");
+        assert_eq!((store.data().calls, store.data().data_calls), (2, 0), "denial must produce zero data requests");
     }
     for (mode, expected) in [("http_failure", "http_status"), ("base64", "invalid_http_envelope"),
-        ("robots_text_large", "body_limit"), ("missing_date", "missing_source_date"), ("html", "content_type"), ("network", "network")] {
+        ("head_forbidden", "http_status"), ("head_network", "network"), ("robots_text_large", "body_limit"), ("missing_date", "missing_source_date"), ("html", "content_type"), ("network", "network")] {
         let (mut store, bindings) = execution(&engine, &component, &linker, mode, allow)?;
         assert_eq!(bindings.memeloop_token_center_service_data_v1().call_collect(&mut store, "health-three-source-v1", input)?.unwrap_err(), expected);
     }
@@ -124,7 +169,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write("component-bounds.json", serde_json::to_vec_pretty(&json!({
         "fuel":FUEL,"fixture_fuel_used":fuel_used,"memory_bytes":MEMORY,"timeout_millis":TIMEOUT.as_millis(),
         "epoch_tick_millis":10,"body_limit":BODY_LIMIT,"shared_collect_normalize_budget":true,
-        "robots_html_over_text_limit":true,"robots_text_over_limit_rejected":true,"robots_404_410":true,
+        "robots_html_over_text_limit":true,"html_robots_content_length":916003,"html_robots_gets":0,"head_405_501_fallback":true,"public_response_sizes":[94758,275580],"robots_text_over_limit_rejected":true,"robots_404_410":true,
         "mixed_offset_ordering":true,"robots_denied_data_requests":0,"http_envelope_negatives":true
     }))?)?;
     println!("actual bounded Wasmtime component: fixture fuel {fuel_used}/{FUEL}, mixed offsets, robots zero data requests, envelope failures");
