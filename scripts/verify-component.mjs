@@ -17,4 +17,4 @@ for(let i=0;i<3;i++) {
 }
 const bytes=readFileSync('plugin.wasm');
 assert.equal(bytes.subarray(0,8).toString('hex'),'0061736d0d000100');
-writeFileSync('component-build.json',JSON.stringify({sha:process.env.GITHUB_SHA,wasm_sha256:'sha256:'+createHash('sha256').update(bytes).digest('hex'),size:bytes.length,host_revision:'0e81b1d895effae0560bb8cd2ce1a6dc36281d2d',actual_wasmtime:true,three_source_fixture_parity:true,bounds:JSON.parse(readFileSync('component-bounds.json','utf8'))},null,2)+'\n');
+writeFileSync('component-build.json',JSON.stringify({sha:process.env.GITHUB_SHA,wasm_sha256:'sha256:'+createHash('sha256').update(bytes).digest('hex'),size:bytes.length,host_revision:'48231e8409528d10072d2ca695ea4a2657dc17c7',actual_wasmtime:true,three_source_fixture_parity:true,bounds:JSON.parse(readFileSync('component-bounds.json','utf8'))},null,2)+'\n');

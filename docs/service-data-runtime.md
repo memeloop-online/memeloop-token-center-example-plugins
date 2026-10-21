@@ -1,6 +1,6 @@
 # Health service-data runtime contract
 
-The 1.2.0 manifest selects the real Rust Wasm component in `component/` through
+The 1.2.1 manifest selects the real Rust Wasm component in `component/` through
 `component_adapter`. The Node runtime remains a reference implementation and
 Pages remains a separate public snapshot. The installed UI reads the host
 service-data envelope.
@@ -64,14 +64,10 @@ with status, headers and `body_base64`. Collect and normalize share one host
 execution deadline and body cap. No additional host API or SDK major is needed.
 
 The component accepts only the exact approved configuration in
-`component/sources.json`, also embedded in the signed manifest. HTTP uses fixed
-public GET headers and no automatic retries. Robots and data requests for all
+`component/sources.json`, also embedded in the signed manifest. HTTP uses
+fixed public GET/HEAD headers and no automatic retries. HEAD is restricted to the exact robots endpoints: successful HTML metadata and 404/410 skip the robots body, text robots use GET with the existing 65KiB limit, and HEAD 405/501 falls back to bounded GET. Other HEAD failures remain source errors. Robots and data requests for all
 three sources and normalization share the host execution deadline; endpoint
-`timeout_millis` is 4000, further bounded by the host execution timeout. A failed
-request or normalization returns a sanitized component error; the host retains
-its durable last-good endpoint snapshot and emits failure provenance. Unlike
-the Node reference's per-source memory cache, this is whole-endpoint failure
-handling: one failed source can leave all three sources stale.
+`timeout_millis` is 30000, further bounded by the host execution timeout. Ordinary request, robots, JSON and normalization failures are isolated per source with a fixed error code, empty rows and unknown (empty) fetchedAt. Successful sources retain their actual HTTP Date and rows. All sources failing returns an error, preserving the host's durable last-good endpoint snapshot; Wasm traps also remain whole-call failures. Collection normalizes all input rows before ranking and truncating to 24, then emits a compact intermediate payload. Normalize validates its source order, dates, safe errors and canonical bounded rows before producing the unchanged public schema.
 
 The WIT has no clock import. The component requires a valid upstream HTTP Date
 for each successful data response and uses it for embedded `fetchedAt`; the
@@ -80,15 +76,17 @@ Date fails closed. Upstream Date is not proof of local completion time. The UI
 continues to evaluate source observation age and host freshness separately.
 
 The existing verify workflow builds the actual component, executes it in
-Wasmtime with the host's 5,000,000 fuel, 32 MiB memory and a shared 4000 ms
-epoch/HTTP deadline. Scenarios cover mixed-offset latest-observation ordering,
+Wasmtime with the new service-data-only host budget of 100,000,000 shared fuel, 32 MiB memory and a shared 30000 ms
+epoch/HTTP deadline. Representative observed-size fixtures use about 41.6M fuel; a structured combined-source near-1MiB case uses about 95.0M, leaving only about 5% headroom. These measurements do not guarantee every legal 1MiB JSON body will fit: exhaustion remains a bounded whole-call failure. This package requires that new host budget; the previous 5,000,000-fuel host is not sufficient for the observed source sizes. Traffic plugin fuel remains unchanged in the host. Scenarios cover mixed-offset latest-observation ordering,
 robots denial with zero data calls, malformed base64, missing Date, HTML, HTTP
 status and redacted transport failures. CI compares normalized rows with the Node
 reference, and checks WIT equality against the pinned host. The exact manifest, fallback
 and component output are checked against authoritative host/installer schemas
 using their pinned JSON Schema engine. These schema checks are not an official
 signed-install receipt. Installer trust pins verified master artifact run
-37914361285, source b1b0a01d2adcae6f94d7c51a228ff249a65cfdd3. The publish
+39623307318, source 48231e8409528d10072d2ca695ea4a2657dc17c7, with actual
+Cosign v3.1.4. Its installer OCI index is pinned by digest; official image
+SBOM/provenance verification is separate from the plugin package signature. The publish
 workflow packages those Wasm bytes, signs the exact OCI digest, and reinstalls
 with the official pinned installer on a GitHub Actions runner. Component build
 and release evidence include the Wasm digest. No local build/install is needed.

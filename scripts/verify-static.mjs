@@ -12,7 +12,10 @@ const reviewedSchema = json('schemas-health-intelligence.json');
 const installerTrust = json('release/installer-trust.json');
 
 assert.equal(manifest.id, 'mtc-health-intelligence');
-assert.equal(manifest.version, '1.2.0');
+assert.equal(manifest.version, '1.2.1');
+assert.equal(json('package.json').version, manifest.version);
+assert.equal(json('package-lock.json').version, manifest.version);
+assert.equal(json('package-lock.json').packages[''].version, manifest.version);
 assert.equal(manifest.wit_version, '0.2.0');
 assert.equal(manifest.wasm, 'plugin.wasm');
 assert.deepEqual(manifest.capabilities, [{
@@ -33,7 +36,7 @@ assert.deepEqual(endpoint.component_adapter, { api_version: 'component-v1', coll
 assert.equal(endpoint.required_scope, 'metrics:read');
 assert.deepEqual(endpoint.response_schema, reviewedSchema);
 assert.equal(endpoint.cache_ttl_seconds, 300);
-assert.equal(endpoint.timeout_millis, 4000);
+assert.equal(endpoint.timeout_millis, 30000);
 assert.equal(endpoint.max_body_bytes, 1_048_576);
 assert.equal(endpoint.fallback.schemaVersion, 1);
 assert.deepEqual(endpoint.fallback.sources.map((source) => source.id), ['codexradar', 'deepswe', 'aixhan']);
@@ -60,8 +63,8 @@ assert.equal(installerTrust.installer_repository, 'ghcr.io/memeloop-online/memel
 assert.match(installerTrust.installer_digest, /^sha256:[0-9a-f]{64}$/);
 assert.match(installerTrust.installer_source_revision, /^[0-9a-f]{40}$/);
 assert.equal(installerTrust.minimum_installer_contract_revision, installerTrust.host_contract_revision);
-assert.equal(installerTrust.installer_verification_run, 'https://github.com/memeloop-online/memeloop-token-center/actions/runs/37914361285');
-assert.equal(installerTrust.cosign_version, 'v3.1.3-mtc.3');
+assert.equal(installerTrust.installer_verification_run, 'https://github.com/memeloop-online/memeloop-token-center/actions/runs/39623307318');
+assert.equal(installerTrust.cosign_version, 'v3.1.4');
 
 const sources = read('src/server/sources.ts');
 for (const expected of [
@@ -137,6 +140,8 @@ if (installerRoot) {
   assert(contributions?.operator_ui, 'pinned installer schema lacks operator_ui');
   const serviceContract = contributions.service_data.items;
   assert(serviceContract.properties?.component_adapter, 'pinned installer lacks component_adapter');
+  assert.equal(serviceContract.properties.timeout_millis.maximum, 30000,
+    'pinned installer schema must support the bounded 30-second service-data deadline');
   assert(!serviceContract.required.includes('url'), 'pinned installer still requires URL collection');
   assert.deepEqual(serviceContract.oneOf, [
     { required: ['url'], not: { required: ['component_adapter'] } },
@@ -149,16 +154,27 @@ if (installerRoot) {
 
   const pluginSource = readFileSync(join(installerRoot, 'src/plugin.rs'), 'utf8');
   assert(pluginSource.includes('"component_v1"'), 'pinned installer runtime lacks component_v1');
-  assert(pluginSource.includes('const PLUGIN_FUEL: u64 = 5_000_000;'));
+  assert(pluginSource.includes('const PLUGIN_FUEL: u64 = 5_000_000;'),
+    'request-path plugin fuel must remain unchanged');
+  assert(pluginSource.includes('const MAX_PLUGIN_SERVICE_DATA_TIMEOUT_MILLIS: u64 = 30_000;'));
+  assert(pluginSource.includes('endpoint.timeout_millis > MAX_PLUGIN_SERVICE_DATA_TIMEOUT_MILLIS'));
   assert(pluginSource.includes('const PLUGIN_MEMORY_BYTES: usize = 32 * 1024 * 1024;'));
   assert(pluginSource.includes('const PLUGIN_TABLE_ELEMENTS: usize = 100_000;'));
   assert(pluginSource.includes('const PLUGIN_EPOCH_TICK: Duration = Duration::from_millis(10);'));
   const execution = readFileSync(join(installerRoot, 'src/plugin/service_data.rs'), 'utf8');
   for (const bound of ['.memory_size(PLUGIN_MEMORY_BYTES)', '.table_elements(PLUGIN_TABLE_ELEMENTS)',
-    '.instances(8)', '.tables(2)', '.memories(2)', 'store.set_fuel(self.fuel)',
+    '.instances(8)', '.tables(2)', '.memories(2)',
+    'const SERVICE_DATA_FUEL: u64 = 100_000_000;',
+    'let fuel = if self.fuel == super::PLUGIN_FUEL', 'self.fuel.min(SERVICE_DATA_FUEL)',
+    'store.set_fuel(fuel)', '.min(Duration::from_millis(endpoint.timeout_millis))',
+    '.call_collect(&mut store,', '.call_normalize(&mut store,',
     'store.set_epoch_deadline(epoch_deadline_ticks(timeout))', 'Duration::from_millis(endpoint.timeout_millis)']) {
     assert(execution.includes(bound), `pinned host execution bounds changed: ${bound}`);
   }
+  assert.equal([...execution.matchAll(/store\.set_fuel\(/g)].length, 1,
+    'collect and normalize must share one fuel allowance without a reset');
+  assert.equal([...execution.matchAll(/let mut store = Store::new\(/g)].length, 1,
+    'collect and normalize must share one bounded store');
   assert(readFileSync(join(installerRoot, 'Cargo.toml'), 'utf8').includes('version = "0.49.9"'),
     'contract validator must use the official pinned validator version');
   assert(pluginSource.includes('validate_service_data_contributions(manifest)?'),

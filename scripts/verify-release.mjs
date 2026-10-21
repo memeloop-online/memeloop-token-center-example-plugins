@@ -42,6 +42,8 @@ const files = Object.entries(mediaTypes).map(([name, mediaType]) => {
 
 const packageManifest = json('plugin-package/plugin.json');
 assert.equal(packageManifest.id, 'mtc-health-intelligence');
+assert.equal(packageManifest.version, JSON.parse(readFileSync(join(repositoryRoot, 'plugin.json'), 'utf8')).version);
+assert.equal(packageManifest.version, '1.2.1');
 assert.equal(packageManifest.wasm, 'plugin.wasm');
 assert.equal(packageManifest.contributions.operator_ui[0].renderer, 'component_v1');
 assert.equal(packageManifest.contributions.operator_ui[0].module_entry, 'ui/health-intelligence.mjs');

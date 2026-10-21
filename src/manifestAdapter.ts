@@ -16,7 +16,7 @@ export interface HealthIntelligenceServiceDataContribution {
   readonly responseSchema: Record<string, unknown>;
   readonly fallback: Record<string, unknown>;
   readonly cacheTtlSeconds: 300;
-  readonly timeoutMillis: 4_000;
+  readonly timeoutMillis: 30_000;
   readonly maxBodyBytes: 1_048_576;
 }
 
@@ -95,7 +95,7 @@ function serviceData(value: unknown): HealthIntelligenceServiceDataContribution 
     || object(candidate.component_adapter)?.normalizer !== 'health-snapshot-v1'
     || candidate.required_scope !== 'metrics:read'
     || candidate.cache_ttl_seconds !== 300
-    || candidate.timeout_millis !== 4_000
+    || candidate.timeout_millis !== 30_000
     || candidate.max_body_bytes !== 1_048_576) {
     throw new ManifestContractError('health intelligence service_data does not match the core v1 contract');
   }
@@ -106,7 +106,7 @@ function serviceData(value: unknown): HealthIntelligenceServiceDataContribution 
     responseSchema: responseSchema(candidate.response_schema),
     fallback: fallback(candidate.fallback),
     cacheTtlSeconds: 300,
-    timeoutMillis: 4_000,
+    timeoutMillis: 30_000,
     maxBodyBytes: 1_048_576,
   };
 }

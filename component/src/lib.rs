@@ -50,10 +50,14 @@ fn rows(source: &Source, body: &Value) -> Result<(Option<String>, Vec<Value>), S
     let mut result = Vec::new();
     for item in input {
         if source.normalizer == "aixhan_v1" {
-            let mut items: Vec<&Value> = item["items"].as_array().map(|v| v.iter().collect()).unwrap_or_default();
-            if item["latest"].is_object() { items.push(&item["latest"]); }
-            items.sort_by_key(|v| date(&v["checkedAt"]));
-            let Some(latest) = items.last() else { continue; };
+            let mut newest: Option<(Option<String>, &Value)> = None;
+            for value in item["items"].as_array().into_iter().flatten()
+                .chain(item.get("latest").filter(|v| v.is_object())) {
+                let checked = date(&value["checkedAt"]);
+                // Stable sort followed by last() chose the last observation on ties.
+                if newest.as_ref().is_none_or(|(best,_)| &checked >= best) { newest = Some((checked,value)); }
+            }
+            let Some((_,latest)) = newest else { continue; };
             let mut name = text(&latest["name"]);
             if name.is_empty() { name = text(&item["name"]); }
             let status = text(&latest["status"]).to_lowercase();
@@ -120,37 +124,111 @@ fn robots_allowed(body: &str, path: &str) -> bool {
     }
     best.is_none_or(|(_,yes)| yes)
 }
-fn request(url: &str, robots: bool) -> Result<(Vec<u8>, Option<String>), String> {
+// Borrow the potentially large base64 body rather than copying it into a JSON Value.
+#[derive(Deserialize)]
+struct HttpEnvelope<'a> {
+    status: u64,
+    headers: Value,
+    #[serde(borrow)]
+    body_base64: Option<&'a str>,
+}
+fn request(url: &str, robots: bool, attempts: &mut u32) -> Result<(Vec<u8>, Option<String>), String> {
     let headers = json!({"accept":if robots {"text/plain"} else {"application/json"},
-        "user-agent":"mtc-health-intelligence/1.2 (public-readonly)"}).to_string();
+        "user-agent":"mtc-health-intelligence/1.2.1 (public-readonly)"}).to_string();
+    if robots {
+        // Metadata-only preflight avoids downloading HTML app shells as robots text.
+        // Unsupported HEAD falls back to the same bounded GET rules below.
+        *attempts += 1;
+        let bytes = memeloop::token_center::host::http_request("HEAD",url,&headers,&[]).map_err(|_| "network")?;
+        let envelope: HttpEnvelope = serde_json::from_slice(&bytes).map_err(|_| "invalid_http_envelope")?;
+        match envelope.status {
+            404 | 410 => return Ok((vec![],None)),
+            405 | 501 => {},
+            200..=299 => {
+                if envelope.headers["content-type"].as_str().unwrap_or("").to_lowercase().contains("text/html") {
+                    return Ok((vec![],None));
+                }
+            },
+            _ => return Err("http_status".into()),
+        }
+    }
+    *attempts += 1;
     let bytes = memeloop::token_center::host::http_request("GET",url,&headers,&[]).map_err(|_| "network")?;
-    let envelope: Value = serde_json::from_slice(&bytes).map_err(|_| "invalid_http_envelope")?;
-    let status = envelope["status"].as_u64().ok_or("invalid_http_envelope")?;
+    let envelope: HttpEnvelope = serde_json::from_slice(&bytes).map_err(|_| "invalid_http_envelope")?;
+    let status = envelope.status;
     if robots && (status == 404 || status == 410) { return Ok((vec![],None)); }
     if !(200..300).contains(&status) { return Err("http_status".into()); }
-    let body = STANDARD.decode(envelope["body_base64"].as_str().ok_or("invalid_http_envelope")?).map_err(|_| "invalid_http_envelope")?;
-    if body.len() > if robots {65536} else {1048576} { return Err("body_limit".into()); }
-    let content_type = envelope["headers"]["content-type"].as_str().unwrap_or("").to_lowercase();
+    let content_type = envelope.headers["content-type"].as_str().unwrap_or("").to_lowercase();
     if content_type.contains("text/html") {
         if robots { return Ok((vec![],None)); }
         return Err("content_type".into());
     }
-    let fetched = envelope["headers"]["date"].as_str().and_then(|v| DateTime::parse_from_rfc2822(v).ok()).map(|v| v.with_timezone(&chrono::Utc).to_rfc3339_opts(SecondsFormat::Millis,true));
+    let body = STANDARD.decode(envelope.body_base64.ok_or("invalid_http_envelope")?).map_err(|_| "invalid_http_envelope")?;
+    if body.len() > if robots {65536} else {1048576} { return Err("body_limit".into()); }
+    let fetched = envelope.headers["date"].as_str().and_then(|v| DateTime::parse_from_rfc2822(v).ok()).map(|v| v.with_timezone(&chrono::Utc).to_rfc3339_opts(SecondsFormat::Millis,true));
     Ok((body,fetched))
+}
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CompactSource {
+    source: String,
+    fetched_at: Option<String>,
+    source_updated_at: Option<String>,
+    rows: Vec<Value>,
+    error: Option<String>,
+    attempts: u32,
+}
+const SOURCE_ERRORS: &[&str] = &["network", "invalid_http_envelope", "http_status", "body_limit",
+    "content_type", "robots_unavailable", "robots_denied", "missing_source_date", "invalid_json", "invalid_payload"];
+// Rebuild only the bounded canonical rows through the same normalizers. Equality
+// rejects extra fields, altered keys, out-of-range numbers and unsorted rows.
+fn valid_compact_rows(source: &Source, value: &CompactSource) -> bool {
+    if value.rows.len() > 24 { return false; }
+    let input: Vec<Value> = value.rows.iter().map(|r| match source.normalizer.as_str() {
+        "codexradar_v1" => json!({"model":r["model"],"effort":r["effort"],"iq":r["iq"],
+            "software_iq":r["softwareIq"],"visual_iq":r["visualIq"],"samples":r["samples"]}),
+        "deepswe_v1" => json!({"model":r["model"],"reasoning_effort":r["effort"],"pass_rate":r["passRate"],
+            "pass_at_4":r["passAt4"],"mean_cost_usd":r["averageCostUsd"],"mean_output_tokens":r["outputTokens"],
+            "mean_agent_steps":r["agentSteps"],"n_attempted":r["samples"]}),
+        _ => json!({"latest":{"id":r["key"],"name":r["name"],"model":r["model"],"type":r["providerType"],
+            "status":r["status"],"latencyMs":r["latencyMs"],"pingLatencyMs":r["pingLatencyMs"],
+            "checkedAt":r["checkedAt"],"message":r["message"]}}),
+    }).collect();
+    let key = match source.normalizer.as_str() { "codexradar_v1" => "comprehensive_points", "deepswe_v1" => "rows", _ => "providerTimelines" };
+    let mut body = json!({});
+    body[key] = json!(input);
+    // sourceUpdatedAt covers all original observations, including rows removed
+    // by the 24-row ranking cap; its canonical date is validated separately.
+    rows(source, &body).is_ok_and(|(_, rows)| rows == value.rows)
 }
 impl exports::memeloop::token_center::service_data_v1::Guest for Collector {
     fn collect(id: String, input: String) -> Result<String,String> {
         if id != "health-three-source-v1" { return Err("invalid_collector".into()); }
         let config = config(&input)?;
         let mut values = Vec::new();
+        let mut successful = 0;
         for source in config.sources {
-            let (robots,_) = request(&source.robots_url,true)?;
-            if !robots_allowed(std::str::from_utf8(&robots).map_err(|_| "robots_unavailable")?,&source.data_path) { return Err("robots_denied".into()); }
-            let (body,fetched) = request(&source.endpoint,false)?;
-            let fetched = fetched.ok_or("missing_source_date")?;
-            let body: Value = serde_json::from_slice(&body).map_err(|_| "invalid_json")?;
-            values.push(json!({"source":source.source,"fetchedAt":fetched,"body":body}));
+            let mut attempts = 0;
+            let result = (|| -> Result<_, String> {
+                let (robots,_) = request(&source.robots_url,true,&mut attempts)?;
+                if !robots_allowed(std::str::from_utf8(&robots).map_err(|_| "robots_unavailable")?,&source.data_path) { return Err("robots_denied".into()); }
+                let (body,fetched) = request(&source.endpoint,false,&mut attempts)?;
+                let fetched = fetched.ok_or("missing_source_date")?;
+                let body: Value = serde_json::from_slice(&body).map_err(|_| "invalid_json")?;
+                let (updated, rows) = rows(&source,&body)?;
+                Ok((fetched,updated,rows))
+            })();
+            let value = match result {
+                Ok((fetched,updated,rows)) => {
+                    successful += 1;
+                    CompactSource { source:source.source, fetched_at:Some(fetched), source_updated_at:updated, rows, error:None, attempts }
+                },
+                Err(error) => CompactSource { source:source.source, fetched_at:None, source_updated_at:None,
+                    rows:vec![], error:Some(if SOURCE_ERRORS.contains(&error.as_str()) {error} else {"invalid_payload".into()}), attempts },
+            };
+            values.push(value);
         }
+        if successful == 0 { return Err("all_sources_failed".into()); }
         let output = serde_json::to_string(&values).map_err(|_| "component_output")?;
         if output.len() > 1048576 { return Err("body_limit".into()); }
         Ok(output)
@@ -158,18 +236,33 @@ impl exports::memeloop::token_center::service_data_v1::Guest for Collector {
     fn normalize(id: String, input: String, collected: String) -> Result<String,String> {
         if id != "health-snapshot-v1" { return Err("invalid_normalizer".into()); }
         let config = config(&input)?;
-        let values: Vec<Value> = serde_json::from_str(&collected).map_err(|_| "invalid_payload")?;
+        if collected.len() > 1048576 { return Err("body_limit".into()); }
+        let values: Vec<CompactSource> = serde_json::from_str(&collected).map_err(|_| "invalid_payload")?;
         if values.len() != config.sources.len() { return Err("invalid_payload".into()); }
         let mut snapshots = Vec::new();
-        for (source,value) in config.sources.iter().zip(&values) {
-            if value["source"] != source.source { return Err("invalid_payload".into()); }
-            let fetched = date(&value["fetchedAt"]).ok_or("invalid_source_date")?;
-            let (updated,rows) = rows(source,&value["body"])?;
+        let mut generated: Option<String> = None;
+        for (source,value) in config.sources.iter().zip(values) {
+            if value.source != source.source || !(1..=3).contains(&value.attempts) { return Err("invalid_payload".into()); }
+            let (status,fetched) = if let Some(error) = &value.error {
+                if !SOURCE_ERRORS.contains(&error.as_str()) || value.fetched_at.is_some() || value.source_updated_at.is_some() || !value.rows.is_empty() {
+                    return Err("invalid_payload".into());
+                }
+                ("error", String::new())
+            } else {
+                let fetched = value.fetched_at.as_ref().and_then(|v| date(&json!(v))).ok_or("invalid_source_date")?;
+                if value.source_updated_at.as_ref().is_some_and(|v| date(&json!(v)).as_ref() != Some(v)) || !valid_compact_rows(source,&value) {
+                    return Err("invalid_payload".into());
+                }
+                if generated.as_ref().is_none_or(|v| &fetched > v) { generated = Some(fetched.clone()); }
+                ("ok", fetched)
+            };
             snapshots.push(json!({"id":source.source,"label":source.label,"pageUrl":source.page_url,
-                "endpoint":source.endpoint,"status":"ok","fetchedAt":fetched,"sourceUpdatedAt":updated,
-                "maxObservationAgeSeconds":source.max_observation_age_seconds,"attempts":2,"error":null,"rows":rows}));
+                "endpoint":source.endpoint,"status":status,"fetchedAt":fetched,"sourceUpdatedAt":value.source_updated_at,
+                "maxObservationAgeSeconds":source.max_observation_age_seconds,"attempts":value.attempts,"error":value.error,"rows":value.rows}));
         }
-        let generated = snapshots.iter().filter_map(|v| v["fetchedAt"].as_str()).max().ok_or("invalid_payload")?;
-        serde_json::to_string(&json!({"schemaVersion":1,"generatedAt":generated,"sources":snapshots})).map_err(|_| "component_output".into())
+        let generated = generated.ok_or("all_sources_failed")?;
+        let output = serde_json::to_string(&json!({"schemaVersion":1,"generatedAt":generated,"sources":snapshots})).map_err(|_| "component_output")?;
+        if output.len() > 1048576 { return Err("body_limit".into()); }
+        Ok(output)
     }
 }

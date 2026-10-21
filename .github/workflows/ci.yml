@@ -50,14 +50,14 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: memeloop-online/memeloop-token-center
-          ref: 0e81b1d895effae0560bb8cd2ce1a6dc36281d2d
+          ref: 48231e8409528d10072d2ca695ea4a2657dc17c7
           path: mtc-core
           persist-credentials: false
       - name: Check out the pinned installer contract
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: memeloop-online/memeloop-token-center
-          ref: b1b0a01d2adcae6f94d7c51a228ff249a65cfdd3
+          ref: 48231e8409528d10072d2ca695ea4a2657dc17c7
           path: mtc-installer-contract
           fetch-depth: 0
           persist-credentials: false
@@ -68,7 +68,7 @@ jobs:
           minimum_revision=$(node -p "require('./release/installer-trust.json').minimum_installer_contract_revision")
           git -C "$GITHUB_WORKSPACE/mtc-installer-contract" merge-base --is-ancestor \
             "$minimum_revision" \
-            b1b0a01d2adcae6f94d7c51a228ff249a65cfdd3
+            48231e8409528d10072d2ca695ea4a2657dc17c7
           node scripts/verify-static.mjs \
             "$GITHUB_WORKSPACE/mtc-core" \
             "$GITHUB_WORKSPACE/mtc-installer-contract"

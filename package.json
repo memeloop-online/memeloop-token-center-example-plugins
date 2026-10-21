@@ -1,6 +1,6 @@
 {
   "name": "@memeloop/mtc-health-intelligence",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "MTC model health and intelligence: extensible public feeds and signed operator UI",
   "type": "module",
   "engines": {
