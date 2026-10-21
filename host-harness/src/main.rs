@@ -131,6 +131,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let allow = "User-agent: *\nAllow: /\n";
     let mut fuel_used = 0;
     let mut measurements = Vec::new();
+    let mut snapshots = Vec::new();
     let manifest: Value = serde_json::from_str(include_str!("../../plugin.json"))?;
     assert_eq!(manifest["contributions"]["service_data"][0]["timeout_millis"], TIMEOUT.as_millis() as u64);
     for mode in ["fixture", "mixed", "robots_missing", "robots_gone", "robots_html_large", "head_405", "head_501", "public_sizes", "near_cap", "best_after_24", "partial_0", "partial_1", "partial_2", "robots_denied_one", "body_cap"] {
@@ -149,6 +150,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         assert!(normalized.len() <= BODY_LIMIT);
         assert!(Instant::now() < store.data().deadline);
         let snapshot: Value = serde_json::from_str(&normalized)?;
+        snapshots.push(snapshot.clone());
         assert_eq!(snapshot["sources"].as_array().unwrap().len(), 3);
         let full_fuel = FUEL - store.get_fuel()?;
         measurements.push(json!({"scenario":mode,"collect_fuel":collect_fuel,"normalize_fuel":full_fuel-collect_fuel,"full_fuel":full_fuel,"compact_bytes":collected.len()}));
@@ -200,6 +202,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert!(guest.call_collect(&mut store, "health-three-source-v1", "{}")?.is_err());
     assert_eq!(store.data().calls, 0);
     assert!(guest.call_normalize(&mut store, "health-snapshot-v1", input, "[]")?.is_err());
+    let compact = guest.call_collect(&mut store, "health-three-source-v1", input)?.unwrap();
+    let compact: Value = serde_json::from_str(&compact)?;
+    for mutation in ["source_order", "extra_field", "unknown_error", "invalid_date", "altered_row"] {
+        let mut value = compact.clone();
+        match mutation {
+            "source_order" => value.as_array_mut().unwrap().swap(0,1),
+            "extra_field" => value[0]["untrusted"] = json!(true),
+            "unknown_error" => value[0]["error"] = json!("untrusted upstream exception"),
+            "invalid_date" => value[0]["fetchedAt"] = json!("yesterday"),
+            _ => value[0]["rows"][0]["untrusted"] = json!(true),
+        }
+        assert!(guest.call_normalize(&mut store, "health-snapshot-v1", input, &serde_json::to_string(&value)?)?.is_err(), "reject compact mutation {mutation}");
+    }
+    let mut all_errors = compact;
+    for value in all_errors.as_array_mut().unwrap() {
+        value["error"] = json!("network"); value["fetchedAt"] = Value::Null;
+        value["sourceUpdatedAt"] = Value::Null; value["rows"] = json!([]);
+    }
+    assert_eq!(guest.call_normalize(&mut store, "health-snapshot-v1", input, &serde_json::to_string(&all_errors)?)?.unwrap_err(), "all_sources_failed");
+    std::fs::write("component-scenarios.json", serde_json::to_vec(&snapshots)?)?;
     std::fs::write("component-bounds.json", serde_json::to_vec_pretty(&json!({
         "fuel":FUEL,"fixture_fuel_used":fuel_used,"measurements":measurements,"requires_service_data_fuel":100000000,"memory_bytes":MEMORY,"timeout_millis":TIMEOUT.as_millis(),
         "epoch_tick_millis":10,"body_limit":BODY_LIMIT,"shared_collect_normalize_budget":true,

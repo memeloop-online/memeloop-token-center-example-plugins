@@ -27,6 +27,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     assert!(response.is_valid(&endpoint["fallback"]));
     let actual: Value = serde_json::from_slice(&fs::read("component-snapshot.json")?)?;
     assert!(response.is_valid(&actual), "actual component output must satisfy declared schema");
+    let scenarios: Vec<Value> = serde_json::from_slice(&fs::read("component-scenarios.json")?)?;
+    for (i, scenario) in scenarios.iter().enumerate() {
+        assert!(response.is_valid(scenario), "component scenario {i} must satisfy public schema");
+    }
     println!("exact manifest, fallback and component output validated against official schema contracts; signed installer gate remains in publish");
     Ok(())
 }
