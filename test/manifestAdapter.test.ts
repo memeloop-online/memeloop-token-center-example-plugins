@@ -31,7 +31,7 @@ describe('core contribution adapter', () => {
       componentAdapter: { api_version: 'component-v1', collector: 'health-three-source-v1', normalizer: 'health-snapshot-v1' },
       requiredScope: 'metrics:read',
       cacheTtlSeconds: 300,
-      timeoutMillis: 4000,
+      timeoutMillis: 30000,
       maxBodyBytes: 1048576,
     });
     expect(result.serviceData.responseSchema).toMatchObject({ type: 'object' });

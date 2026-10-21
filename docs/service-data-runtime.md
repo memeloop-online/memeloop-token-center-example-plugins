@@ -67,7 +67,7 @@ The component accepts only the exact approved configuration in
 `component/sources.json`, also embedded in the signed manifest. HTTP uses fixed
 public GET headers and no automatic retries. Robots and data requests for all
 three sources and normalization share the host execution deadline; endpoint
-`timeout_millis` is 4000, further bounded by the host execution timeout. A failed
+`timeout_millis` is 30000, further bounded by the host execution timeout. A failed
 request or normalization returns a sanitized component error; the host retains
 its durable last-good endpoint snapshot and emits failure provenance. Unlike
 the Node reference's per-source memory cache, this is whole-endpoint failure
@@ -80,7 +80,7 @@ Date fails closed. Upstream Date is not proof of local completion time. The UI
 continues to evaluate source observation age and host freshness separately.
 
 The existing verify workflow builds the actual component, executes it in
-Wasmtime with the host's 5,000,000 fuel, 32 MiB memory and a shared 4000 ms
+Wasmtime with the host's 5,000,000 fuel, 32 MiB memory and a shared 30000 ms
 epoch/HTTP deadline. Scenarios cover mixed-offset latest-observation ordering,
 robots denial with zero data calls, malformed base64, missing Date, HTML, HTTP
 status and redacted transport failures. CI compares normalized rows with the Node
