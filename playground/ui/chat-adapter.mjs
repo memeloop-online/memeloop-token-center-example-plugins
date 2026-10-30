@@ -131,18 +131,30 @@ request.signal.throwIfAborted();
 const entry=entriesRef.current.find(value=>value.full.messageId===request.identity.messageId);
 if(!entry)return null;
 const attachments=[];
+const requested=new Map(request.references.map(reference=>[reference.contentHash,reference]));
+const seen=new Set();
 let total=0;
 for(let index=0;index<(entry.source.images||[]).length;index++){
+request.signal.throwIfAborted();
+if(attachments.length>=request.maxCount)break;
 const asset=assets.current.get(entry.full.messageId+':image:'+index);
-if(!asset)continue;
-total+=asset.reference.size;
-if(attachments.length>=request.maxCount||total>request.maxBytes)throw new Error(t.imageLoadFailed);
+if(!asset||asset.dataUrl!==entry.source.images[index].dataUrl)continue;
+const reference=asset.reference;
+if(seen.has(reference.contentHash))continue;
+if(!request.referencesOmitted){
+const expected=requested.get(reference.contentHash);
+if(!expected||expected.filename!==reference.filename||expected.mimeType!==reference.mimeType||expected.size!==reference.size)continue;
+}
+// Hydration is a bounded preview batch; all originals retain download links.
+if(reference.size>request.maxBytes-total)continue;
 const data=imageBytes(asset.dataUrl);
 request.signal.throwIfAborted();
-attachments.push({reference:asset.reference,source:{kind:'bytes',data}});
+attachments.push({reference,source:{kind:'bytes',data}});
+seen.add(reference.contentHash);
+total+=reference.size;
 }
 return {identity:request.identity,revision:request.revision,attachments};
-},[t]);
+},[]);
 
 const loadMessageDetail=React.useCallback(async(message,request)=>{
 request.signal.throwIfAborted();
