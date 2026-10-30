@@ -273,3 +273,149 @@ test('Anthropic array and scalar tool inputs remain invalid', async () => {
     await assert.rejects(runAgentLoop({ ...options(api), protocol: 'anthropic' }), /Invalid Anthropic tool call/);
   }
 });
+
+const responses = output => ({ id: 'response-test', status: 'completed', output });
+const responseText = text => ({ type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] });
+const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jr1cAAAAASUVORK5CYII=';
+
+test('Responses native tools continue through core inference with private reasoning and native function outputs', async () => {
+  const requests = [];
+  const events = [];
+  const privateReasoning = { type: 'reasoning', id: 'private-reasoning', encrypted_content: 'opaque-private-state', summary: [] };
+  const api = {
+    discoverApi: async () => ({ paths: {} }),
+    requestApi: async request => {
+      // A stateless Responses provider only returns encrypted continuation state
+      // when the client explicitly requests it before the first model call.
+      assert.deepEqual(request.body.request.include, ['reasoning.encrypted_content']);
+      requests.push(structuredClone(request));
+      return requests.length === 1
+        ? responses([privateReasoning, { type: 'function_call', id: 'fc-docs', call_id: 'docs', name: 'discover_api', arguments: '{}' }])
+        : responses([responseText('Ready.')]);
+    },
+  };
+  const result = await runAgentLoop({ ...options(api), protocol: 'responses', onEvent: event => events.push(event) });
+  assert.equal(result.iterations, 2);
+  assert.equal(requests[0].path, '/internal/v1/inference/responses');
+  assert.equal(requests[0].body.key_id, 'selected-key-id');
+  assert.equal(requests[0].body.request.stream, false);
+  assert.equal(requests[0].body.request.store, false);
+  assert.deepEqual(requests[0].body.request.include, ['reasoning.encrypted_content']);
+  assert.equal(requests[0].body.request.tools[0].name, 'discover_api');
+  assert.deepEqual(requests[1].body.request.input[1], privateReasoning);
+  assert.equal(requests[1].body.request.input.at(-1).type, 'function_call_output');
+  assert.equal(requests[1].body.request.input.at(-1).call_id, 'docs');
+  assert.equal(JSON.stringify(events).includes('opaque-private-state'), false);
+  assert.equal(JSON.stringify(result).includes('opaque-private-state'), false);
+  assert.deepEqual(result.messages.at(-1), { role: 'assistant', content: 'Ready.' });
+});
+
+test('GPT Image 2 uses selected outer model and core Responses endpoint and emits a final raster image', async () => {
+  let inference;
+  const events = [];
+  const api = {
+    discoverApi: async () => { throw new Error('No product tools requested'); },
+    requestApi: async request => {
+      inference = structuredClone(request);
+      return responses([{ type: 'image_generation_call', id: 'image-one', status: 'completed', result: png }]);
+    },
+  };
+  const result = await runAgentLoop({ ...options(api), model: 'chosen-text-route', enableImageGeneration: true, enableTools: false, onEvent: event => events.push(event) });
+  assert.equal(inference.path, '/internal/v1/inference/responses');
+  assert.equal(inference.body.request.model, 'chosen-text-route');
+  assert.deepEqual(inference.body.request.tools, [{ type: 'image_generation', model: 'gpt-image-2' }]);
+  assert.deepEqual(inference.body.request.tool_choice, { type: 'image_generation' });
+  assert.equal(inference.body.request.store, false);
+  assert.deepEqual(result.messages.at(-1), { role: 'assistant', content: '', images: [{ dataUrl: `data:image/png;base64,${png}`, mimeType: 'image/png' }] });
+  assert.equal(events.some(event => event.type === 'assistant' && event.message.images?.length === 1), true);
+  assert.equal(events.some(event => event.type === 'tool'), false);
+});
+
+test('image bytes are kept in display messages and excluded from native product-tool continuation', async () => {
+  let iteration = 0;
+  const api = {
+    discoverApi: async () => ({ paths: {} }),
+    requestApi: async request => {
+      if (++iteration === 1) return responses([
+        { type: 'image_generation_call', status: 'completed', result: png },
+        { type: 'function_call', call_id: 'docs', name: 'discover_api', arguments: '{}' },
+      ]);
+      assert.equal(JSON.stringify(request.body.request.input).includes(png), false);
+      assert.equal(request.body.request.input.at(-1).type, 'function_call_output');
+      return responses([responseText('Image ready.')]);
+    },
+  };
+  const result = await runAgentLoop({ ...options(api), enableImageGeneration: true });
+  assert.equal(result.messages[1].images[0].mimeType, 'image/png');
+  assert.equal(result.messages.at(-1).content, 'Image ready.');
+});
+
+test('incomplete, partial, non-raster and unsolicited image outputs fail before display', async () => {
+  const samples = [
+    { ...responses([{ type: 'image_generation_call', result: png }]), status: 'incomplete' },
+    responses([{ type: 'image_generation_call', status: 'in_progress', result: png }]),
+    responses([{ type: 'image_generation_call', result: Buffer.from('<svg/>').toString('base64') }]),
+    responses([{ type: 'image_generation_call', result: 'https://external.invalid/image.png' }]),
+  ];
+  for (const sample of samples) {
+    const events = [];
+    const api = { discoverApi: async () => ({ paths: {} }), requestApi: async () => sample };
+    await assert.rejects(runAgentLoop({ ...options(api), enableImageGeneration: true, onEvent: event => events.push(event) }));
+    assert.equal(events.some(event => event.type === 'assistant'), false);
+  }
+  const api = { discoverApi: async () => ({ paths: {} }), requestApi: async () => responses([{ type: 'image_generation_call', result: png }]) };
+  await assert.rejects(runAgentLoop({ ...options(api), protocol: 'responses' }), /Unexpected image generation/);
+});
+
+test('Responses cancellation reaches the core bridge and stops without displaying late images', async () => {
+  const abort = new AbortController();
+  const events = [];
+  const api = {
+    discoverApi: async () => ({ paths: {} }),
+    requestApi: async request => {
+      assert.equal(request.signal, abort.signal);
+      abort.abort();
+      return responses([{ type: 'image_generation_call', result: png }]);
+    },
+  };
+  const result = await runAgentLoop({ ...options(api), enableImageGeneration: true, signal: abort.signal, onEvent: event => events.push(event) });
+  assert.equal(result.status, 'cancelled');
+  assert.equal(events.some(event => event.type === 'assistant'), false);
+});
+
+test('core session wrapper links independent inference rounds and stays outside provider JSON', async () => {
+  const requests = [];
+  const api = {
+    discoverApi: async () => ({ paths: {} }),
+    requestApi: async request => {
+      requests.push(structuredClone(request));
+      return requests.length === 1 ? responses([{ type: 'function_call', call_id: 'docs', name: 'discover_api', arguments: '{}' }]) : responses([responseText('Done.')]);
+    },
+  };
+  const result = await runAgentLoop({ ...options(api), protocol: 'responses', conversationId: 'playground-session', turnId: 'user-turn', parentTurnId: 'previous-turn' });
+  assert.deepEqual(requests[0].body.conversation, { id: 'playground-session', turn_id: 'user-turn', parent_turn_id: 'previous-turn' });
+  assert.equal(requests[1].body.conversation.id, 'playground-session');
+  assert.equal(requests[1].body.conversation.parent_turn_id, 'user-turn');
+  assert.notEqual(requests[1].body.conversation.turn_id, 'user-turn');
+  assert.equal(result.lastTurnId, requests[1].body.conversation.turn_id);
+  assert.equal(Object.hasOwn(requests[0].body.request, 'conversation'), false);
+  assert.equal(Object.hasOwn(requests[0].body.request, 'metadata'), false);
+});
+
+test('conversation wrapper is supported for Chat and Anthropic and rejects malformed IDs before dispatch', async () => {
+  for (const protocol of ['openai', 'anthropic']) {
+    let wrapper;
+    const api = {
+      discoverApi: async () => ({ paths: {} }),
+      requestApi: async request => {
+        wrapper = request.body.conversation;
+        return protocol === 'anthropic' ? { role: 'assistant', content: [{ type: 'text', text: 'Done.' }] } : answer({ content: 'Done.' });
+      },
+    };
+    await runAgentLoop({ ...options(api), protocol, enableTools: false, conversationId: 'session-123', turnId: 'turn-123' });
+    assert.deepEqual(wrapper, { id: 'session-123', turn_id: 'turn-123' });
+    for (const conversationId of ['', 'space id', '换行', 'a'.repeat(129)]) {
+      await assert.rejects(runAgentLoop({ ...options(api), conversationId }), /Invalid conversation identifier/);
+    }
+  }
+});
