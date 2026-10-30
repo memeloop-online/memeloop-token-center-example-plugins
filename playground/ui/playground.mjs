@@ -193,6 +193,7 @@ const [routes,setRoutes]=React.useState([]);
 const [keys,setKeys]=React.useState([]);
 const [loadState,setLoadState]=React.useState({status:'loading',error:null,forbidden:false});
 const [search,setSearch]=React.useState('');
+const [modelOpen,setModelOpen]=React.useState(false);
 const [groups,setGroups]=React.useState([]);
 const [settings,setSettings]=React.useState(null);
 const [resourceLoading,setResourceLoading]=React.useState({routes:true,keys:true});
@@ -235,7 +236,7 @@ generationRef.current++;
 sendMutexRef.current=false;
 modelTouchedRef.current=false;keyTouchedRef.current=false;
 conversationRef.current={id:crypto.randomUUID(),lastTurnId:null};
-setRoutes([]);setKeys([]);setGroups([]);setSettings(null);setSearch('');setEnableImageGeneration(false);
+setRoutes([]);setKeys([]);setGroups([]);setSettings(null);setSearch('');setModelOpen(false);setEnableImageGeneration(false);
 setBusy(false);setMessages([]);setTools([]);setReview(null);setModelId(null);setKeyId(null);setDraft('');setStatusNote(null);
 return()=>{
 generationRef.current++;
@@ -420,9 +421,10 @@ typeof api.navigate==='function'&&h('div',{style:styles.row},
 
 const modelField=h('div',{style:{...styles.field,flex:'2 1 300px'}},
 h('label',{htmlFor:'mtp-model'},t.model),
-h(Fluent.Combobox,{id:'mtp-model',value:search||selectedRoute?.public_model||'',selectedOptions:selectedRoute?[selectedRoute.id]:[],placeholder:t.search,disabled:busy,
-onChange:e=>{modelTouchedRef.current=true;setSearch(e.target.value);setModelId(null);},
-onOptionSelect:(_e,data)=>{if(data.optionValue){modelTouchedRef.current=true;setModelId(data.optionValue);setSearch('');}},
+h(Fluent.Combobox,{id:'mtp-model',value:search||selectedRoute?.public_model||'',selectedOptions:selectedRoute?[selectedRoute.id]:[],placeholder:t.search,disabled:busy,open:modelOpen,
+onOpenChange:(_e,data)=>setModelOpen(data.open),
+onChange:e=>{modelTouchedRef.current=true;setSearch(e.target.value);setModelId(null);setModelOpen(true);},
+onOptionSelect:(_e,data)=>{if(data.optionValue){modelTouchedRef.current=true;setModelId(data.optionValue);setSearch('');setModelOpen(false);}},
 style:{width:'100%'},listbox:{style:{maxHeight:360}}},
 groupedRoutes.map(group=>h(Fluent.OptionGroup,{key:group.id,label:group.label},group.routes.map(r=>h(Fluent.Option,{key:r.id,value:r.id,text:r.public_model},r.public_model+' · '+r.protocol))))),
 resourceLoading.routes&&h(Fluent.Spinner,{size:'tiny',label:t.loadingModels,labelPosition:'after'}),

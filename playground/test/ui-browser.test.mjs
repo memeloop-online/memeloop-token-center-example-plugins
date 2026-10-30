@@ -19,6 +19,8 @@ const anthropicRoute={...route,id:'route-2',public_model:'anthropic-model',proto
 window.requests=[];window.responses=[];window.navigations=[];let iteration=0;let routeLoads=0;
 const png='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGMwajjwHwAEzAJy+GEfCwAAAABJRU5ErkJggg==';
 const mode=new URLSearchParams(location.search).get('mode');
+const longMessage='Full assistant response start. '+('Detailed product analysis. '.repeat(2400))+' ORIGINAL_RESPONSE_END';
+if(mode==='multi-group')route.route_group_ids=['general','featured'];
 const call=(id,name,args)=>({id,type:'function',function:{name,arguments:JSON.stringify(args)}});
 const api={navigate:(...args)=>window.navigations.push(args),discoverApi:async()=>({paths:{'/internal/v1/widgets':{post:{}}}}),requestApi:async req=>{
  window.requests.push(req);
@@ -31,7 +33,7 @@ const api={navigate:(...args)=>window.navigations.push(args),discoverApi:async()
   }
   return [route,anthropicRoute];
  }
- if(req.path.startsWith('/internal/v1/route-groups'))return [{id:'general',name:'General purpose'}];
+ if(req.path.startsWith('/internal/v1/route-groups'))return [{id:'general',name:'General purpose'},{id:'featured',name:'Featured models'}];
  if(req.path.startsWith('/internal/v1/filter-assistant/settings'))return {billing_key_id:mode==='late-key'?'key-late':'key-1',model_route_id:'route-1'};
  if(req.path.startsWith('/internal/v1/keys')){
   if(mode==='late-key'){
@@ -50,7 +52,7 @@ const api={navigate:(...args)=>window.navigations.push(args),discoverApi:async()
  if(req.path==='/internal/v1/inference/chat/completions'){
   if(mode==='pending')return new Promise(()=>{});
   iteration++;
-  const message=mode==='mutation'&&iteration===1?{role:'assistant',content:'Review change',tool_calls:[call('docs','discover_api',{}),call('write','request_api',{method:'POST',path:'/internal/v1/widgets',body:{name:'example'}})]}:{role:'assistant',content:'Hello from model'};
+  const message=mode==='mutation'&&iteration===1?{role:'assistant',content:'Review change',tool_calls:[call('docs','discover_api',{}),call('write','request_api',{method:'POST',path:'/internal/v1/widgets',body:{name:'example'}})]}:{role:'assistant',content:mode==='long-message'&&iteration===1?longMessage:'Hello from model'};
   const response={choices:[{message}]};window.responses.push(response);return response;
  }
  throw new Error('Unexpected path '+req.path);
@@ -111,6 +113,39 @@ test('actual plugin mounts, sends, reviews, stops and navigates in Chromium',{ti
   await page.waitForFunction(()=>document.querySelector('#mtp-key')?.value==='key-1');
   assert.equal(await page.getByRole('checkbox',{name:'Allow assistant product tools',exact:true}).getAttribute('aria-describedby')!==null,true);
   assert.equal(await page.evaluate(()=>window.requests.filter(r=>r.path.includes('/route-groups')).every(r=>!new URL(r.path,location.origin).searchParams.has('limit'))),true);
+
+  // The same route can be selected from either membership, including with a keyboard.
+  await page.goto(url+'?mode=multi-group');
+  const modelSearch=page.getByRole('combobox',{name:'Model',exact:true});
+  await modelSearch.fill('Featured models');
+  const featured=page.getByRole('group',{name:'Featured models',exact:true});
+  await featured.getByRole('option',{name:'text-model · openai',exact:true}).waitFor();
+  await featured.getByRole('option',{name:'text-model · openai',exact:true}).click();
+  assert.equal(await modelSearch.inputValue(),'text-model');
+  await modelSearch.fill('Featured models');
+  await featured.getByRole('option',{name:'text-model · openai',exact:true}).waitFor();
+  await modelSearch.press('ArrowDown');await modelSearch.press('Enter');
+  assert.equal(await modelSearch.inputValue(),'text-model');
+  assert.equal(await modelSearch.getAttribute('aria-expanded'),'false');
+  await send();await page.getByText('Done · Iterations:',{exact:false}).waitFor();
+  assert.equal(await page.evaluate(()=>window.requests.find(r=>r.body?.request).body.request.model),'text-model');
+
+  // Official chat display bounds affect rendering only, even after expand/collapse.
+  await page.goto(url+'?mode=long-message');await choose();await send();
+  const expand=page.getByRole('button',{name:'Show full message',exact:true});await expand.waitFor();
+  assert.equal(await expand.getAttribute('aria-expanded'),'false');
+  const projectedId=await expand.getAttribute('aria-controls');assert.ok(projectedId);
+  const original=await page.evaluate(()=>window.responses[0].choices[0].message.content);
+  const projection=await page.evaluate(id=>document.getElementById(id)?.textContent,projectedId);
+  assert.ok(projection.length<original.length);assert.equal(projection.includes('ORIGINAL_RESPONSE_END'),false);
+  await expand.click();
+  const collapse=page.getByRole('button',{name:'Collapse message',exact:true});await collapse.waitFor();
+  assert.equal(await collapse.getAttribute('aria-expanded'),'true');
+  assert.equal(await page.evaluate(id=>document.getElementById(id)?.textContent,projectedId),original);
+  await collapse.click();await expand.waitFor();
+  assert.equal(await page.evaluate(id=>document.getElementById(id)?.textContent,projectedId),projection);
+  await send();await page.getByRole('log').filter({hasText:'Hello from model'}).waitFor();
+  assert.equal(await page.evaluate(()=>window.requests.filter(r=>r.body?.request)[1].body.request.messages.find(m=>m.role==='assistant').content),original);
 
   // Later pages can remain pending while the initial model is usable.
   await page.goto(url+'?mode=progressive');await choose();await send();

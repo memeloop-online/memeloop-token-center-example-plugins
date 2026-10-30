@@ -20,13 +20,6 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24.18.0
-      # Bootstrap on the remote runner once; commit the uploaded lockfile and
-      # remove this step before the release is published.
-      - name: Bootstrap missing playground lockfile in CI
-        run: |
-          if [ ! -f playground/package-lock.json ]; then
-            npm install --package-lock-only --ignore-scripts --prefix playground --legacy-peer-deps
-          fi
       - name: Preserve playground dependency lock for source review
         uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4
         with:
