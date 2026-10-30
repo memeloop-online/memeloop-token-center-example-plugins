@@ -114,7 +114,8 @@ if(assets.current.get(id)?.dataUrl===image.dataUrl)continue;
 const bytes=imageBytes(image.dataUrl);
 const digest=await crypto.subtle.digest('SHA-256',bytes);
 if(!alive)return;
-const contentHash=Array.from(new Uint8Array(digest),byte=>byte.toString(16).padStart(2,'0')).join('');
+// MemeLoop attachment references use algorithm-prefixed content addresses.
+const contentHash='sha256:'+Array.from(new Uint8Array(digest),byte=>byte.toString(16).padStart(2,'0')).join('');
 const extension=image.mimeType==='image/jpeg'?'jpg':image.mimeType==='image/webp'?'webp':'png';
 assets.current.set(id,{imageIndex,dataUrl:image.dataUrl,reference:{contentHash,mimeType:image.mimeType,filename:'generated-image-'+(index+1)+'-'+(imageIndex+1)+'.'+extension,size:bytes.byteLength}});
 changed=true;
