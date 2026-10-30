@@ -1,6 +1,6 @@
 # Text Model Playground
 
-An optional MemeLoop Token Center plugin. It adds **Playground → Text models** and an **Open in playground** action beside each model route, using the host's React and Fluent UI components.
+An optional MemeLoop Token Center plugin. It adds **Playground → Text models** and an **Open in playground** action beside each model route, using the host's React and Fluent UI controls, with the official `@memeloop/react-ui` Thread and Composer for chat.
 
 The signed-in operator can search enabled OpenAI, Responses and Anthropic routes, select a model and an existing billing key, and chat or generate images. The host uses the current Operator credential and tenant; listing billing keys requires `keys:read`, and inference requires `keys:write` for the selected key. The key's normal model grants, limits, balance and billing apply. Requests use the core inference bridge and its routing, request archive, session indexing, usage analysis and billing. The plugin keeps only the current page's conversation in React memory; the core owns durable request and response records.
 
@@ -18,7 +18,7 @@ The `verify playground package` GitHub Actions workflow creates `mtc-text-playgr
 
 Download the artifact from the pull request's Actions run and verify `sha256sum --check SHA256SUMS`. Extract the archive into a separate `mtc-text-playground` package directory. A development host configured to load that reviewed directory can inspect the two UI contributions. CI review artifacts are unsigned; production installation requires the administrator's normal signed OCI publication and trust policy. A source PR or review archive is not a signed production release.
 
-Version 1.1.0 requires the host's new `/internal/v1/inference/responses` endpoint and `conversation: { id, turn_id, parent_turn_id }` inference wrapper, in addition to `operator.model-route.action`, navigation context and generic authenticated API discovery. Deploy the core version providing both inference contracts before installing this plugin version; the UI sends conversation wrappers on Chat and Messages requests as well as Responses. The host controls scopes, active tenant and upstream routing for every request.
+Version 1.1.0 requires the host's `ReactDOM` and `ReactJSXRuntime` activation bindings, the new `/internal/v1/inference/responses` endpoint and `conversation: { id, turn_id, parent_turn_id }` inference wrapper, in addition to `operator.model-route.action`, navigation context and generic authenticated API discovery. Deploy the core version providing both inference contracts before installing this plugin version; the UI sends conversation wrappers on Chat and Messages requests as well as Responses. The host controls scopes, active tenant and upstream routing for every request.
 
 ## Build
 
