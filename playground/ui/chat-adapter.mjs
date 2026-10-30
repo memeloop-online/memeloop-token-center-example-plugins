@@ -192,7 +192,7 @@ const renderTurnActions=message=>{
 const entry=entriesRef.current.find(value=>value.full.messageId===message.messageId);
 return (entry?.source.images||[]).map((image,index)=>{
 const asset=assets.current.get(message.messageId+':image:'+index);
-return asset?h(Fluent.Button,{key:index,as:'a',size:'small',appearance:'subtle',href:asset.dataUrl,download:asset.reference.filename,'aria-label':t.generatedImage},t.downloadImage):null;
+return asset?h(Fluent.Button,{key:index,as:'a',size:'small',appearance:'subtle',href:asset.dataUrl,download:asset.reference.filename,'aria-label':t.generatedImage,'data-playground-image-download':true},t.downloadImage):null;
 });
 };
 const messageLabels={
@@ -203,7 +203,10 @@ detailLoadFailed:t.error,noDetails:t.empty,detailTruncated:t.moreMessage,exportF
 truncated:()=>t.moreMessage,workSteps:count=>t.tool+' · '+count,toolSteps:count=>t.tool+' · '+count,toolInput:t.toolInput,toolOutput:t.toolOutput
 };
 return h('div',{ref:container,style:{minWidth:0,height:520,maxHeight:'75vh',background:'var(--colorNeutralBackground1)',color:'var(--colorNeutralForeground1)'},role:'log','aria-live':'polite','aria-label':t.title},
-h(ThemeProvider,{theme},h(ScopedCssBaseline,{sx:{display:'flex',flexDirection:'column',height:'100%',minWidth:0,containerType:'inline-size',containerName:'memeloop-chat','& > div':{display:'flex',flexDirection:'column',flex:1,minHeight:0,minWidth:0}}},
+h(ThemeProvider,{theme},h(ScopedCssBaseline,{sx:{display:'flex',flexDirection:'column',height:'100%',minWidth:0,containerType:'inline-size',containerName:'memeloop-chat','& > div':{display:'flex',flexDirection:'column',flex:1,minHeight:0,minWidth:0},
+// Downloads are primary image actions; keep their official toolbar visible and
+// hit-testable before hover, including mouse-driven narrow viewports.
+'& [data-testid="message-toolbar"]:has([data-playground-image-download])':{opacity:1,pointerEvents:'auto'}}},
 h(ComposerContext.Provider,{value:{t,disabled:!ready,busy,clear,Fluent}},
 h(MemeLoopRuntimeProvider,{adapter},
 h(MemeLoopThread,{showTimeline:false,composerComponent:PlaygroundComposer,messageLabels,loadMessageDetail,loadVisibleAttachments,attachmentRevision:String(assetRevision),renderTurnActions,operationErrorMessage:t.error}))))));
