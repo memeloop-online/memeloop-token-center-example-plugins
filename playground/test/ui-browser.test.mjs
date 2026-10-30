@@ -14,15 +14,35 @@ import {createRoot} from 'react-dom/client';
 import * as Fluent from '@fluentui/react-components';
 import {activateOperatorUi} from './dist/playground/mtc-text-playground/ui/playground.mjs';
 const pkg=activateOperatorUi({React,Fluent,defineOperatorUiPackage:x=>x});
-const route={id:'route-1',public_model:'text-model',upstream_model:'upstream',enabled:true,protocol:'openai',created_at:1};
+const route={id:'route-1',public_model:'text-model',upstream_model:'upstream',enabled:true,protocol:'openai',route_group_ids:['general'],created_at:1};
 const anthropicRoute={...route,id:'route-2',public_model:'anthropic-model',protocol:'anthropic'};
-window.requests=[];window.responses=[];window.navigations=[];let iteration=0;
+window.requests=[];window.responses=[];window.navigations=[];let iteration=0;let routeLoads=0;
+const png='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGMwajjwHwAEzAJy+GEfCwAAAABJRU5ErkJggg==';
 const mode=new URLSearchParams(location.search).get('mode');
 const call=(id,name,args)=>({id,type:'function',function:{name,arguments:JSON.stringify(args)}});
 const api={navigate:(...args)=>window.navigations.push(args),discoverApi:async()=>({paths:{'/internal/v1/widgets':{post:{}}}}),requestApi:async req=>{
  window.requests.push(req);
- if(req.path.includes('model-routes')){if(mode==='403')throw Object.assign(new Error('Forbidden'),{status:403});return [route,anthropicRoute];}
- if(req.path.startsWith('/internal/v1/keys'))return [{key_id:'key-1',alias:'Billing',created_at:1}];
+ if(req.path.includes('model-routes')){
+  routeLoads++;if(mode==='403')throw Object.assign(new Error('Forbidden'),{status:403});
+  if(mode==='retry'&&routeLoads===1)throw new Error('Route service temporarily unavailable');
+  if(mode==='progressive'){
+   if(req.path.includes('before_id='))return new Promise(resolve=>{window.releaseRoutes=()=>resolve([{...anthropicRoute,created_at:0}]);});
+   return Array.from({length:100},(_,i)=>({...route,id:i?'filler-'+i:route.id,public_model:i?'model-'+i:route.public_model,created_at:100-i}));
+  }
+  return [route,anthropicRoute];
+ }
+ if(req.path.startsWith('/internal/v1/route-groups'))return [{id:'general',name:'General purpose'}];
+ if(req.path.startsWith('/internal/v1/filter-assistant/settings'))return {billing_key_id:mode==='late-key'?'key-late':'key-1',model_route_id:'route-1'};
+ if(req.path.startsWith('/internal/v1/keys')){
+  if(mode==='late-key'){
+   if(req.path.includes('before_id='))return new Promise(resolve=>{window.releaseKeys=()=>resolve([{key_id:'key-late',alias:'Configured billing',created_at:0}]);});
+   return Array.from({length:100},(_,i)=>({key_id:i?'key-'+(i+1):'key-1',alias:i?'Key '+i:'Billing',created_at:100-i}));
+  }
+  return [{key_id:'key-1',alias:'Billing',created_at:1},{key_id:'key-2',alias:'Second billing',created_at:0}];
+ }
+ if(req.path==='/internal/v1/inference/responses'){
+  const response={id:'response-image',status:mode==='partial-image'?'in_progress':'completed',output:[{type:'image_generation_call',status:'completed',result:png}]};window.responses.push(response);return response;
+ }
  if(req.path==='/internal/v1/widgets')return {ok:true};
  if(req.path==='/internal/v1/inference/messages'){
   const response={id:'anthropic-response',type:'message',role:'assistant',content:[{type:'text',text:'Hello from Anthropic'}],stop_reason:'end_turn'};window.responses.push(response);return response;
@@ -36,7 +56,7 @@ const api={navigate:(...args)=>window.navigations.push(args),discoverApi:async()
  throw new Error('Unexpected path '+req.path);
 }};
 const view=createRoot(document.getElementById('root'));window.unmount=()=>view.unmount();
-view.render(React.createElement(Fluent.FluentProvider,{theme:Fluent.webLightTheme},React.createElement(pkg.components.workspace,{api,tenantExternalId:'tenant-a',locale:'en',context:{}}),React.createElement(pkg.components['open-model'],{api,context:{modelRoute:mode==='anthropic'?anthropicRoute:route},locale:'en'})));
+const render=(tenantExternalId='tenant-a')=>view.render(React.createElement(Fluent.FluentProvider,{theme:Fluent.webLightTheme},React.createElement(pkg.components.workspace,{api,tenantExternalId,locale:'en',context:{}}),React.createElement(pkg.components['open-model'],{api,context:{modelRoute:mode==='anthropic'?anthropicRoute:route},locale:'en'})));window.changeTenant=()=>render('tenant-b');render();
 `;
 
 test('actual plugin mounts, sends, reviews, stops and navigates in Chromium',{timeout:120000},async()=>{
@@ -53,7 +73,8 @@ test('actual plugin mounts, sends, reviews, stops and navigates in Chromium',{ti
   page=await browser.newPage({viewport:{width:390,height:844},reducedMotion:'reduce'});
   page.on('pageerror',error=>errors.push(error.message));
   const url='http://127.0.0.1:'+server.address().port;
-  const choose=async()=>{await page.locator('#mtp-model').selectOption('route-1');await page.locator('#mtp-key').selectOption('key-1');};
+  const chooseModel=async(label='text-model · openai')=>{await page.getByRole('combobox',{name:'Model',exact:true}).click();await page.getByRole('option',{name:label,exact:true}).click();};
+  const choose=async()=>{await chooseModel();await page.locator('#mtp-key').selectOption('key-1');};
   const send=async()=>{await page.getByRole('textbox',{name:'Type a message',exact:true}).fill('Inspect workspace');await page.getByRole('button',{name:'Send',exact:true}).click();};
   await page.goto(url);await choose();await send();
   await page.getByRole('log').filter({hasText:'Hello from model'}).waitFor();
@@ -73,13 +94,71 @@ test('actual plugin mounts, sends, reviews, stops and navigates in Chromium',{ti
   await page.getByText('Done · Iterations:',{exact:false}).waitFor();
   assert.equal(await page.evaluate(()=>Object.hasOwn(window.requests.find(r=>r.body?.request).body.request,'tools')),false);
   await page.goto(url+'?mode=anthropic');
-  await page.locator('#mtp-model').selectOption('route-2');await page.locator('#mtp-key').selectOption('key-1');
+  await chooseModel('anthropic-model · anthropic');await page.locator('#mtp-key').selectOption('key-1');
   await page.getByRole('checkbox',{name:'Allow assistant product tools',exact:true}).uncheck();await send();
   await page.getByRole('log').filter({hasText:'Hello from Anthropic'}).waitFor();
   await page.getByText('Done · Iterations:',{exact:false}).waitFor();
   assert.deepEqual(await page.evaluate(()=>{const req=window.requests.find(r=>r.body?.request);return {path:req.path,model:req.body.request.model,hasTools:Object.hasOwn(req.body.request,'tools')};}),{path:'/internal/v1/inference/messages',model:'anthropic-model',hasTools:false});
   await page.getByRole('button',{name:'Open in Playground'}).click();
   assert.equal(await page.evaluate(()=>window.navigations[0][1].modelRoute.protocol),'anthropic');
+
+  // Search and selection share one accessible, grouped control.
+  await page.goto(url);await page.getByRole('combobox',{name:'Model',exact:true}).fill('General purpose');
+  await page.getByRole('option',{name:'text-model · openai',exact:true}).waitFor();
+  assert.equal(await page.getByRole('group',{name:'General purpose',exact:true}).count(),1);
+  assert.equal(await page.getByRole('textbox',{name:'Search models',exact:true}).count(),0);
+  await page.getByRole('option',{name:'text-model · openai',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelector('#mtp-key')?.value==='key-1');
+  assert.equal(await page.getByRole('checkbox',{name:'Allow assistant product tools',exact:true}).getAttribute('aria-describedby')!==null,true);
+  assert.equal(await page.evaluate(()=>window.requests.filter(r=>r.path.includes('/route-groups')).every(r=>!new URL(r.path,location.origin).searchParams.has('limit'))),true);
+
+  // Later pages can remain pending while the initial model is usable.
+  await page.goto(url+'?mode=progressive');await choose();await send();
+  await page.getByRole('log').filter({hasText:'Hello from model'}).waitFor();
+  await page.waitForFunction(()=>typeof window.releaseRoutes==='function');await page.evaluate(()=>window.releaseRoutes());
+  await chooseModel('anthropic-model · anthropic');
+  assert.equal(await page.evaluate(()=>window.requests.filter(r=>r.path.includes('model-routes')).every(r=>new URL(r.path,location.origin).searchParams.get('limit')==='100')),true);
+
+  // Configured keys can arrive after page one; a deliberate user choice wins.
+  await page.goto(url+'?mode=late-key');await page.waitForFunction(()=>typeof window.releaseKeys==='function');
+  await page.evaluate(()=>window.releaseKeys());await page.waitForFunction(()=>document.querySelector('#mtp-key')?.value==='key-late');
+  await page.goto(url+'?mode=late-key');await page.waitForFunction(()=>typeof window.releaseKeys==='function');
+  await page.locator('#mtp-key').selectOption('key-2');await page.evaluate(()=>window.releaseKeys());
+  await page.locator('#mtp-key option[value="key-late"]').waitFor({state:'attached'});
+  assert.equal(await page.locator('#mtp-key').inputValue(),'key-2');
+  await page.goto(url+'?mode=retry');await page.getByText('Route service temporarily unavailable',{exact:false}).waitFor();
+  await page.getByRole('button',{name:'Retry',exact:true}).click();await choose();await send();
+  await page.getByRole('log').filter({hasText:'Hello from model'}).waitFor();
+
+  // The core receives stable conversation metadata and new turn IDs.
+  await page.goto(url);await choose();await send();await page.getByText('Done · Iterations:',{exact:false}).waitFor();
+  await send();await page.getByText('Done · Iterations:',{exact:false}).waitFor();
+  await page.waitForFunction(()=>window.requests.filter(r=>r.body?.request).length===2);
+  const turns=await page.evaluate(()=>window.requests.filter(r=>r.body?.request).map(r=>r.body.conversation));
+  assert.ok(turns[0].id);assert.equal(turns[1].id,turns[0].id);assert.notEqual(turns[1].turn_id,turns[0].turn_id);assert.equal(turns[1].parent_turn_id,turns[0].turn_id);
+  await page.getByRole('button',{name:'Clear',exact:true}).click();await send();await page.getByText('Done · Iterations:',{exact:false}).waitFor();
+  const cleared=await page.evaluate(()=>window.requests.filter(r=>r.body?.request).at(-1).body.conversation);
+  assert.notEqual(cleared.id,turns[0].id);assert.equal(Object.hasOwn(cleared,'parent_turn_id'),false);
+  await page.locator('#mtp-key').selectOption('key-2');await send();await page.getByText('Done · Iterations:',{exact:false}).waitFor();
+  const changedKey=await page.evaluate(()=>window.requests.filter(r=>r.body?.request).at(-1).body.conversation);
+  assert.notEqual(changedKey.id,cleared.id);assert.equal(Object.hasOwn(changedKey,'parent_turn_id'),false);
+  await page.evaluate(()=>window.changeTenant());await page.waitForFunction(()=>document.querySelector('#mtp-key')?.value==='key-1');
+  assert.equal(await page.getByRole('log').innerText(),'');await send();await page.getByText('Done · Iterations:',{exact:false}).waitFor();
+  assert.notEqual(await page.evaluate(()=>window.requests.filter(r=>r.body?.request).at(-1).body.conversation.id),changedKey.id);
+  assert.ok(await page.evaluate(()=>window.requests.some(r=>r.path.includes('tenant_external_id=tenant-b'))));
+
+  await page.goto(url);await choose();await page.getByRole('checkbox',{name:'Allow assistant product tools',exact:true}).uncheck();
+  await page.getByRole('checkbox',{name:'Generate images',exact:true}).check();await send();
+  const image=page.getByRole('img',{name:'Generated image',exact:true});await image.waitFor();
+  await image.evaluate(el=>el.decode());assert.equal(await image.evaluate(el=>el.complete&&el.naturalWidth>0),true);
+  const imageRequest=await page.evaluate(()=>window.requests.find(r=>r.path==='/internal/v1/inference/responses'));
+  assert.deepEqual(imageRequest.body.request.tools,[{type:'image_generation',model:'gpt-image-2'}]);
+  assert.deepEqual(imageRequest.body.request.tool_choice,{type:'image_generation'});
+  assert.ok(imageRequest.body.conversation.id);assert.equal(imageRequest.body.key_id,'key-1');
+  const download=page.getByRole('link',{name:'Generated image',exact:true});
+  assert.match(await download.getAttribute('href'),/^data:image\/png;base64,/);assert.match(await download.getAttribute('download'),/\.png$/);
+  await page.goto(url+'?mode=partial-image');await choose();await page.getByRole('checkbox',{name:'Generate images',exact:true}).check();await send();
+  await page.getByText('An error occurred:',{exact:false}).waitFor();assert.equal(await page.getByRole('img',{name:'Generated image',exact:true}).count(),0);
 
   for(const approval of ['Cancel','Approve']){
    await page.goto(url+'?mode=mutation');await choose();await send();
@@ -164,7 +243,7 @@ test('actual plugin mounts, sends, reviews, stops and navigates in Chromium',{ti
   await page.getByRole('button',{name:'Stop',exact:true}).click();
   await page.getByText('Stopped. The upstream request may still continue and incur cost.',{exact:true}).waitFor();
   await page.evaluate(()=>window.unmount());
-  await page.goto(url+'?mode=403');await page.getByText('Missing read permission (keys:read required). Contact your administrator.',{exact:false}).waitFor();
+  await page.goto(url+'?mode=403');await page.getByText('Forbidden',{exact:false}).waitFor();assert.equal(await page.getByRole('button',{name:'Retry',exact:true}).isEnabled(),true);
   assert.deepEqual(errors,[]);
  }catch(error){
   if(page){

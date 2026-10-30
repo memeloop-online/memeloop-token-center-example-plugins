@@ -20,8 +20,24 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24.18.0
-      - name: Verify agent orchestration and tool authority
-        run: node --test playground/agent-loop.test.mjs playground/test/ui-unit.test.mjs playground/test/release-evidence.test.mjs
+      # Bootstrap on the remote runner once; commit the uploaded lockfile and
+      # remove this step before the release is published.
+      - name: Bootstrap missing playground lockfile in CI
+        run: |
+          if [ ! -f playground/package-lock.json ]; then
+            npm install --package-lock-only --ignore-scripts --prefix playground --legacy-peer-deps
+          fi
+      - name: Preserve playground dependency lock for source review
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4
+        with:
+          name: playground-dependency-lock-${{ github.sha }}
+          path: playground/package-lock.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Install playground dependencies from lockfile
+        run: npm ci --prefix playground --ignore-scripts --legacy-peer-deps
+      - name: Verify orchestration, model selection, core inference and image handling
+        run: npm run test:playground
       - name: Build self-contained installable review package
         run: npm run build:playground
       - name: Preserve package, manifest and digest evidence
@@ -36,7 +52,7 @@ jobs:
           npm install --no-save --package-lock=false react@19.2.8 react-dom@19.2.8 @fluentui/react-components@9.74.7 playwright@1.62.1 esbuild@0.25.12
           npx playwright install --with-deps chromium
       - name: Exercise the bundled plugin with real React and Fluent in Chromium
-        run: node --test playground/test/ui-browser.test.mjs
+        run: npm run test:playground:browser
       - name: Preserve browser review evidence
         if: always()
         uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4

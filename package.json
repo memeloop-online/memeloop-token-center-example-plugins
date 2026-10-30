@@ -28,7 +28,9 @@
     "snapshot": "node dist/server/server/generateStaticSnapshot.js site/api/health-intelligence.json",
     "serve": "node dist/server/server/run.js",
     "verify:published": "node dist/server/server/verifyPublishedSnapshot.js",
-    "build:playground": "node scripts/build-playground.mjs"
+    "build:playground": "node scripts/build-playground.mjs",
+    "test:playground": "node --test playground/agent-loop.test.mjs playground/test/ui-unit.test.mjs playground/test/release-evidence.test.mjs",
+    "test:playground:browser": "node --test playground/test/ui-browser.test.mjs"
   },
   "dependencies": {},
   "devDependencies": {

@@ -1,5 +1,25 @@
 # Third-party notices
 
+## MemeLoop React UI message display primitives
+
+Package: `@memeloop/react-ui@0.2.10` (MIT).
+Source: https://github.com/memeloop-online/memeloop/tree/main/packages/memeloop-react-ui
+Registry: https://www.npmjs.com/package/@memeloop/react-ui/v/0.2.10
+
+The plugin bundles the official `@memeloop/react-ui/chat/core` message display
+projection and truncation metadata functions. Display projections keep long
+replies manageable while the conversation retains its complete message text.
+The installed package is tree-shaken into the single browser module; its MUI,
+assistant-ui and React component implementations are not included.
+
+The display primitives use `memeloop@0.3.9` (MIT) for message metadata validation.
+Registry: https://www.npmjs.com/package/memeloop/v/0.3.9
+This package complements the separately pinned orchestration script below;
+it does not replace that script's agent execution loop. Both npm packages
+declare the MIT license, whose terms are reproduced below. The package lock,
+bundle metadata and package evidence record the resolved dependency versions
+and the inputs that contribute bytes to the shipped browser module.
+
 ## MemeLoop agent/tool orchestration script
 
 Source: https://github.com/memeloop-online/memeloop/blob/7e9aec265a8870ec45cd186112d65108fb6b606d/packages/memeloop/src/loops/agent-tool-loop/default.mjs

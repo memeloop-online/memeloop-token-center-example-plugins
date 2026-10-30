@@ -1,14 +1,18 @@
 import {runAgentLoop} from '../agent-loop.mjs';
+import {boundMessageForDisplay,getDisplayTruncation} from '@memeloop/react-ui/chat/core';
 
 let React,Fluent;
-const PAGE=10;
+const PAGE=100;
 const MAX_ROUTES=5000;
 const MAX_TOOL_RESULT=600;
-const TEXT_PROTOCOLS=['openai','anthropic'];
+const TEXT_PROTOCOLS=['openai','anthropic','responses'];
 
 const COPY={
 zh:{
-title:'文本模型游乐场',
+title:'模型游乐场',
+requestRecords:'请求记录',
+sessionRecords:'会话记录',
+generationTasks:'生成任务',
 search:'搜索模型',
 protocol:'协议',
 protocolAll:'全部协议',
@@ -21,8 +25,15 @@ retry:'重试',
 empty:'没有符合条件的已启用模型。',
 err403:'没有读取权限（需要 keys:read）。请联系管理员授权。',
 unsupported:'当前宿主不支持此插件所需的 API，请升级控制平面版本。',
-billing:'推理使用所选计费密钥。聊天仅临时保存，计费记录会保留。',
-noAccess:'路由列出不代表拥有模型访问权限，请以实际推理结果为准。',
+toolsHelp:'助手可以查询产品中的模型、请求和用量，也可以提出配置变更。执行变更前会展示操作内容，请你确认。',
+imageGeneration:'生成图片',
+imageHelp:'使用所选模型调用 GPT Image 2 生成图片，图片会显示在对话中。',
+generatedImage:'生成的图片',
+expandMessage:'展开全文',
+collapseMessage:'收起全文',
+otherModels:'其他模型',
+loadingModels:'正在加载模型与路由组…',
+loadingKeys:'正在加载计费密钥…',
 input:'输入消息',
 send:'发送',
 stop:'停止',
@@ -42,7 +53,7 @@ upstream:'上游模型',
 selectKeyFirst:'请先选择计费密钥。',
 selectModelFirst:'请先选择模型。',
 openInPlayground:'在游乐场打开',
-disabledRoute:'该路由未启用或不是支持的文本协议（OpenAI / Anthropic）。',
+disabledRoute:'请启用此路由，并使用 OpenAI、Responses 或 Anthropic 协议。',
 enableTools:'允许助手使用产品工具',
 roleUser:'用户',
 roleAssistant:'助手',
@@ -50,7 +61,10 @@ assistantThinking:'思考中…',
 keyDisabled:'无可用计费密钥。'
 },
 en:{
-title:'Text Model Playground',
+title:'Model Playground',
+requestRecords:'Request records',
+sessionRecords:'Session records',
+generationTasks:'Generation tasks',
 search:'Search models',
 protocol:'Protocol',
 protocolAll:'All protocols',
@@ -63,8 +77,15 @@ retry:'Retry',
 empty:'No enabled models match the filters.',
 err403:'Missing read permission (keys:read required). Contact your administrator.',
 unsupported:'This host does not provide the APIs required by this plugin. Please upgrade the control plane.',
-billing:'Inference uses the selected billing key. Chat is temporary; billing records remain.',
-noAccess:'A listed route does not imply model access; actual inference results apply.',
+toolsHelp:'The assistant can look up models, requests and usage, and propose configuration changes. You review and confirm each change before it runs.',
+imageGeneration:'Generate images',
+imageHelp:'Use the selected model to call GPT Image 2. Generated images appear in the conversation.',
+generatedImage:'Generated image',
+expandMessage:'Show full message',
+collapseMessage:'Collapse message',
+otherModels:'Other models',
+loadingModels:'Loading models and route groups…',
+loadingKeys:'Loading billing keys…',
 input:'Type a message',
 send:'Send',
 stop:'Stop',
@@ -84,7 +105,7 @@ upstream:'Upstream model',
 selectKeyFirst:'Select a billing key first.',
 selectModelFirst:'Select a model first.',
 openInPlayground:'Open in Playground',
-disabledRoute:'Route is disabled or does not use a supported text protocol (OpenAI / Anthropic).',
+disabledRoute:'Enable this route and choose OpenAI, Responses or Anthropic protocol.',
 enableTools:'Allow assistant product tools',
 roleUser:'You',
 roleAssistant:'Assistant',
@@ -105,16 +126,17 @@ if(str==null)return '';
 return str.length>n?str.slice(0,n)+'…':str;
 }
 
-export async function fetchPages(api,path,signal,idField='id'){
+export async function fetchPages(api,path,signal,idField='id',onPage){
 const out=[],seen=new Set();
 let cursor='';
 for(let page=0;page<MAX_ROUTES/PAGE;page++){
-const batch=await api.requestApi({path:path+'?limit='+PAGE+cursor,signal});
+const batch=await api.requestApi({path:path+(path.includes('?')?'&':'?')+'limit='+PAGE+cursor,signal});
 if(signal?.aborted)throw new DOMException('Aborted','AbortError');
 const items=Array.isArray(batch)?batch:batch?.items;
 if(!Array.isArray(items))throw new Error('Invalid list response');
 let added=0;
 for(const item of items){const id=item?.[idField];if(id&&!seen.has(id)){seen.add(id);out.push(item);added++;}}
+onPage?.([...out]);
 if(items.length<PAGE)return out;
 const last=items.at(-1);
 if(!added||last?.created_at==null||!last?.[idField])throw new Error('List pagination did not advance');
@@ -128,19 +150,29 @@ return data.filter(k=>k&&k.key_id&&(k.status==null||k.status==='active')&&k.enab
 }
 
 const styles={
-root:{display:'flex',flexDirection:'column',gap:12,padding:16,background:'#ffffff',color:'#242424',minHeight:0,fontFamily:'inherit'},
+root:{display:'flex',flexDirection:'column',gap:12,padding:16,background:'var(--colorNeutralBackground1)',color:'var(--colorNeutralForeground1)',minHeight:0,fontFamily:'inherit'},
 filters:{display:'flex',flexWrap:'wrap',gap:12,alignItems:'flex-end'},
 field:{display:'flex',flexDirection:'column',gap:4,minWidth:180,flex:'1 1 180px'},
-chat:{display:'flex',flexDirection:'column',gap:8,border:'1px solid #e0e0e0',borderRadius:8,padding:12,background:'#fafafa',minHeight:220,maxHeight:420,overflowY:'auto'},
-msgUser:{alignSelf:'flex-end',background:'#e8f3ff',borderRadius:8,padding:'6px 10px',maxWidth:'80%',whiteSpace:'pre-wrap',wordBreak:'break-word'},
-msgAssistant:{alignSelf:'flex-start',background:'#ffffff',border:'1px solid #e0e0e0',borderRadius:8,padding:'6px 10px',maxWidth:'80%',whiteSpace:'pre-wrap',wordBreak:'break-word'},
-msgTool:{alignSelf:'flex-start',background:'#f3f2f1',borderRadius:8,padding:'4px 8px',maxWidth:'80%',fontSize:12,color:'#605e5c'},
+chat:{display:'flex',flexDirection:'column',gap:8,border:'1px solid var(--colorNeutralStroke2)',borderRadius:8,padding:12,background:'var(--colorNeutralBackground2)',minHeight:220,maxHeight:420,overflowY:'auto'},
+msgUser:{alignSelf:'flex-end',background:'var(--colorBrandBackground2)',color:'var(--colorBrandForeground2)',borderRadius:8,padding:'6px 10px',maxWidth:'80%',whiteSpace:'pre-wrap',wordBreak:'break-word'},
+msgAssistant:{alignSelf:'flex-start',background:'var(--colorNeutralBackground1)',border:'1px solid var(--colorNeutralStroke2)',borderRadius:8,padding:'6px 10px',maxWidth:'80%',whiteSpace:'pre-wrap',wordBreak:'break-word'},
+msgTool:{alignSelf:'flex-start',background:'var(--colorNeutralBackground3)',borderRadius:8,padding:'4px 8px',maxWidth:'80%',fontSize:12,color:'var(--colorNeutralForeground2)'},
 composer:{display:'flex',flexWrap:'wrap',gap:8,alignItems:'flex-end'},
 row:{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'},
-dialog:{position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000},
-dialogCard:{background:'#fff',borderRadius:8,padding:20,maxWidth:520,width:'90%',boxShadow:'0 8px 24px rgba(0,0,0,0.2)',display:'flex',flexDirection:'column',gap:12},
-pre:{background:'#f3f2f1',padding:8,borderRadius:4,overflowX:'auto',fontSize:12,maxHeight:180}
+pre:{background:'var(--colorNeutralBackground3)',padding:8,borderRadius:4,overflowX:'auto',fontSize:12,maxHeight:180}
 };
+
+function MessageContent({message,t}){
+const h=React.createElement;
+const [expanded,setExpanded]=React.useState(false);
+const contentId=React.useId();
+// Bound only the rendered projection. Full messages remain intact for inference.
+const projection=React.useMemo(()=>boundMessageForDisplay(message),[message]);
+const truncated=getDisplayTruncation(projection)?.contentTruncated===true;
+return h(React.Fragment,null,
+h('div',{id:contentId},(expanded?message.content:projection.content)||(message._live?t.assistantThinking:'')),
+truncated&&h(Fluent.Button,{size:'small',appearance:'subtle','aria-expanded':expanded,'aria-controls':contentId,onClick:()=>setExpanded(value=>!value)},expanded?t.collapseMessage:t.expandMessage));
+}
 
 function ReviewDialog({request,t,onResolve}){
 const h=React.createElement;
@@ -161,7 +193,10 @@ const [routes,setRoutes]=React.useState([]);
 const [keys,setKeys]=React.useState([]);
 const [loadState,setLoadState]=React.useState({status:'loading',error:null,forbidden:false});
 const [search,setSearch]=React.useState('');
-const [protocol,setProtocol]=React.useState('all');
+const [groups,setGroups]=React.useState([]);
+const [settings,setSettings]=React.useState(null);
+const [resourceLoading,setResourceLoading]=React.useState({routes:true,keys:true});
+const [enableImageGeneration,setEnableImageGeneration]=React.useState(false);
 const [modelId,setModelId]=React.useState(null);
 const [keyId,setKeyId]=React.useState(null);
 const [messages,setMessages]=React.useState([]);
@@ -172,12 +207,15 @@ const [enableTools,setEnableTools]=React.useState(true);
 const [statusNote,setStatusNoteState]=React.useState(null);
 const setStatusNote=(text,intent='info')=>setStatusNoteState(text?{text,intent}:null);
 const rootRef=React.useRef(null);
+const modelTouchedRef=React.useRef(false);
+const keyTouchedRef=React.useRef(false);
 const restoreReviewFocusRef=React.useRef(false);
 const [review,setReview]=React.useState(null);
 const mountedRef=React.useRef(true);
 const generationRef=React.useRef(0);
 const abortRef=React.useRef(null);
 const sendMutexRef=React.useRef(false);
+const conversationRef=React.useRef({id:null,lastTurnId:null});
 const reviewResolveRef=React.useRef(null);
 const [reloadTick,setReloadTick]=React.useState(0);
 
@@ -195,6 +233,9 @@ React.useEffect(()=>{
 mountedRef.current=true;
 generationRef.current++;
 sendMutexRef.current=false;
+modelTouchedRef.current=false;keyTouchedRef.current=false;
+conversationRef.current={id:crypto.randomUUID(),lastTurnId:null};
+setRoutes([]);setKeys([]);setGroups([]);setSettings(null);setSearch('');setEnableImageGeneration(false);
 setBusy(false);setMessages([]);setTools([]);setReview(null);setModelId(null);setKeyId(null);setDraft('');setStatusNote(null);
 return()=>{
 generationRef.current++;
@@ -209,52 +250,69 @@ if(!supported)return;
 const ctrl=new AbortController();
 let alive=true;
 setLoadState({status:'loading',error:null,forbidden:false});
-(async()=>{
-try{
-const [routeList,keyList]=await Promise.all([
-fetchPages(api,'/internal/v1/model-routes',ctrl.signal),
-fetchPages(api,'/internal/v1/keys',ctrl.signal,'key_id').then(normalizeKeys)
-]);
+setResourceLoading({routes:true,keys:true});
+const scoped=path=>path+(tenantKey?'?tenant_external_id='+encodeURIComponent(tenantKey):'');
+const update=(fn)=>value=>{if(alive&&mountedRef.current)fn(value);};
+const reportFailure=error=>{
+if(alive&&mountedRef.current&&error?.name!=='AbortError')setLoadState({status:'error',error,forbidden:(error?.status||error?.statusCode)===403});
+throw error;
+};
+const loadResource=(name,path,idField,setter)=>fetchPages(api,scoped(path),ctrl.signal,idField,update(setter)).catch(reportFailure)
+.finally(()=>{if(alive&&mountedRef.current)setResourceLoading(prev=>({...prev,[name]:false}));});
+Promise.allSettled([
+loadResource('routes','/internal/v1/model-routes','id',setRoutes),
+loadResource('keys','/internal/v1/keys','key_id',value=>setKeys(normalizeKeys(value))),
+api.requestApi({path:scoped('/internal/v1/route-groups'),signal:ctrl.signal}).then(update(value=>setGroups(Array.isArray(value)?value:value?.items||[]))).catch(reportFailure),
+api.requestApi({path:scoped('/internal/v1/filter-assistant/settings'),signal:ctrl.signal}).then(update(setSettings)).catch(reportFailure)
+]).then(results=>{
 if(!alive||!mountedRef.current)return;
-setRoutes(routeList);
-setKeys(keyList);
-setLoadState({status:'ready',error:null,forbidden:false});
-}catch(err){
-if(!alive||!mountedRef.current)return;
-if(err&&(err.name==='AbortError'))return;
-const status=err&&(err.status||err.statusCode);
-setLoadState({status:'error',error:err,forbidden:status===403});
-}
-})();
+const failed=results.find(result=>result.status==='rejected'&&result.reason?.name!=='AbortError');
+setLoadState(failed?{status:'error',error:failed.reason,forbidden:(failed.reason?.status||failed.reason?.statusCode)===403}:{status:'ready',error:null,forbidden:false});
+});
 return()=>{alive=false;ctrl.abort();};
 },[supported,tenantKey,api,reloadTick]);
 
 const usableRoutes=React.useMemo(()=>routes.filter(r=>r&&r.enabled&&TEXT_PROTOCOLS.indexOf(r.protocol)>=0),[routes]);
 
-const protocols=React.useMemo(()=>{
-const set=new Set();
-usableRoutes.forEach(r=>set.add(r.protocol));
-return Array.from(set);
-},[usableRoutes]);
-
 const filtered=React.useMemo(()=>{
 const q=search.trim().toLowerCase();
-return usableRoutes.filter(r=>{
-if(protocol!=='all'&&r.protocol!==protocol)return false;
-if(!q)return true;
-return (r.public_model||'').toLowerCase().includes(q)||(r.upstream_model||'').toLowerCase().includes(q);
-});
-},[usableRoutes,search,protocol]);
+return usableRoutes.filter(r=>!q||[r.public_model,r.upstream_model,r.protocol,...(r.route_group_ids||[]).map(id=>groups.find(g=>g.id===id)?.name||id)].some(value=>String(value||'').toLowerCase().includes(q)));
+},[usableRoutes,search,groups]);
 
-const contextModel=context&&context.modelRoute&&context.modelRoute.public_model;
+const groupedRoutes=React.useMemo(()=>{
+const result=new Map();
+for(const route of filtered){
+const memberships=route.route_group_ids?.length?route.route_group_ids:[null];
+for(const groupId of memberships){
+const group=groups.find(g=>g.id===groupId);
+const label=groupId?(group?.name||groupId):t.otherModels;
+const id=groupId||'__other';
+if(!result.has(id))result.set(id,{id,label,routes:[]});
+result.get(id).routes.push(route);
+}
+}
+return [...result.values()].sort((a,b)=>a.id==='__other'?1:b.id==='__other'?-1:a.label.localeCompare(b.label));
+},[filtered,groups,t]);
+
+const contextModel=context?.modelRoute?.public_model;
+const contextRouteId=context?.modelRoute?.id;
 
 React.useEffect(()=>{
-if(modelId||!contextModel)return;
-const match=usableRoutes.find(r=>r.public_model===contextModel);
+if(modelId||modelTouchedRef.current)return;
+const match=usableRoutes.find(r=>contextRouteId?r.id===contextRouteId:contextModel?r.public_model===contextModel:r.id===settings?.model_route_id);
 if(match)setModelId(match.id);
-},[usableRoutes,contextModel,modelId]);
+},[usableRoutes,contextModel,contextRouteId,modelId,settings]);
 
-const selectedRoute=React.useMemo(()=>filtered.find(r=>r.id===modelId)||null,[filtered,modelId]);
+React.useEffect(()=>{
+if(!keyTouchedRef.current&&!keyId&&settings?.billing_key_id&&keys.some(k=>k.id===settings.billing_key_id))setKeyId(settings.billing_key_id);
+},[keys,settings,keyId]);
+
+React.useEffect(()=>{
+conversationRef.current={id:crypto.randomUUID(),lastTurnId:null};
+setMessages([]);setTools([]);setStatusNote(null);
+},[keyId]);
+
+const selectedRoute=React.useMemo(()=>usableRoutes.find(r=>r.id===modelId)||null,[usableRoutes,modelId]);
 const selectedKey=React.useMemo(()=>keys.find(k=>k.id===keyId)||null,[keys,keyId]);
 
 if(!supported){
@@ -307,6 +365,11 @@ keyId:selectedKey.id,
 model:selectedRoute.public_model,
 protocol:selectedRoute.protocol,
 enableTools,
+enableImageGeneration:enableImageGeneration&&selectedRoute.protocol!=='anthropic',
+imageModel:'gpt-image-2',
+conversationId:conversationRef.current.id,
+turnId:crypto.randomUUID(),
+parentTurnId:conversationRef.current.lastTurnId||undefined,
 messages:base,
 signal:ctrl.signal,
 confirmMutation,
@@ -316,15 +379,16 @@ if(!current()||ctrl.signal.aborted)return;
 if(!ev)return;
 if(ev.type==='assistant'&&ev.message){
 const content=ev.message.content;
-setMessages(prev=>prev.concat([{role:'assistant',content:typeof content==='string'?content:''}]));
+setMessages(prev=>prev.concat([{...ev.message,role:'assistant',content:typeof content==='string'?content:''}]));
 }else if(ev.type==='tool'){
 setTools(prev=>prev.concat([{name:ev.name||t.tool,status:ev.status||'',result:ev.result!=null?truncate(ev.result,MAX_TOOL_RESULT):null}]).slice(-50));
 }
 }
 });
 if(!current())return;
+if(result?.lastTurnId)conversationRef.current.lastTurnId=result.lastTurnId;
 if(result&&Array.isArray(result.messages)){
-setMessages(result.messages.map(m=>({role:m.role,content:typeof m.content==='string'?m.content:''})));
+setMessages(result.messages.map(m=>({...m,content:typeof m.content==='string'?m.content:''})));
 }
 if(ctrl.signal.aborted||result?.status==='cancelled'){
 setStatusNote(t.stopNote,'warning');
@@ -347,43 +411,30 @@ if(current()){sendMutexRef.current=false;setBusy(false);}
 }
 };
 
-const clearChat=()=>{if(busy)return;setMessages([]);setTools([]);setStatusNote(null);};
+const clearChat=()=>{if(busy)return;conversationRef.current={id:crypto.randomUUID(),lastTurnId:null};setMessages([]);setTools([]);setStatusNote(null);};
 
-const header=h(Fluent.Text,{as:'h2',size:600,weight:'semibold'},t.title);
+const header=h('div',{style:{...styles.row,justifyContent:'space-between'}},
+h(Fluent.Text,{as:'h2',size:600,weight:'semibold'},t.title),
+typeof api.navigate==='function'&&h('div',{style:styles.row},
+[['requests',t.requestRecords],['sessions',t.sessionRecords],['generations',t.generationTasks]].map(([view,label])=>h(Fluent.Button,{key:view,size:'small',appearance:'subtle',onClick:()=>api.navigate(view)},label))));
 
-const filterBar=h('div',{style:styles.filters},
-h('div',{style:styles.field},
-h('label',{htmlFor:'mtp-search'},t.search),
-h(Fluent.Input,{id:'mtp-search',value:search,disabled:busy,onChange:(e,d)=>setSearch(d&&d.value!=null?d.value:'')})),
-h('div',{style:styles.field},
-h('label',{htmlFor:'mtp-protocol'},t.protocol),
-h(Fluent.Select,{id:'mtp-protocol',value:protocol,disabled:busy,onChange:(e)=>setProtocol(e.target.value)},
-h('option',{value:'all'},t.protocolAll),
-protocols.map(p=>h('option',{key:p,value:p},p)))));
-
-let body;
-if(loadState.status==='loading'){
-body=h('div',{style:styles.row},h(Fluent.Spinner,{size:'small',label:t.loading,labelPosition:'after'}));
-}else if(loadState.status==='error'){
-body=h(Fluent.MessageBar,{intent:loadState.forbidden?'warning':'error'},
-h(Fluent.MessageBarBody,null,
-loadState.forbidden?t.err403:(loadState.error&&loadState.error.message||t.error),
-' ',
-h(Fluent.Button,{size:'small',onClick:()=>setReloadTick(n=>n+1)},t.retry)));
-}else{
-const modelField=h('div',{style:styles.field},
+const modelField=h('div',{style:{...styles.field,flex:'2 1 300px'}},
 h('label',{htmlFor:'mtp-model'},t.model),
-h(Fluent.Select,{id:'mtp-model',value:selectedRoute?.id||'',disabled:busy,onChange:e=>setModelId(e.target.value||null)},
-h('option',{value:''},t.modelPlaceholder),
-filtered.map(r=>h('option',{key:r.id,value:r.id},r.public_model))),
-filtered.length===0&&h(Fluent.Text,{size:200},t.empty));
+h(Fluent.Combobox,{id:'mtp-model',value:search||selectedRoute?.public_model||'',selectedOptions:selectedRoute?[selectedRoute.id]:[],placeholder:t.search,disabled:busy,
+onChange:e=>{modelTouchedRef.current=true;setSearch(e.target.value);setModelId(null);},
+onOptionSelect:(_e,data)=>{if(data.optionValue){modelTouchedRef.current=true;setModelId(data.optionValue);setSearch('');}},
+style:{width:'100%'},listbox:{style:{maxHeight:360}}},
+groupedRoutes.map(group=>h(Fluent.OptionGroup,{key:group.id,label:group.label},group.routes.map(r=>h(Fluent.Option,{key:r.id,value:r.id,text:r.public_model},r.public_model+' · '+r.protocol))))),
+resourceLoading.routes&&h(Fluent.Spinner,{size:'tiny',label:t.loadingModels,labelPosition:'after'}),
+!resourceLoading.routes&&filtered.length===0&&h(Fluent.Text,{size:200},t.empty));
 
 const keyField=h('div',{style:styles.field},
 h('label',{htmlFor:'mtp-key'},t.key),
-h(Fluent.Select,{id:'mtp-key',value:selectedKey?.id||'',disabled:busy,onChange:e=>setKeyId(e.target.value||null)},
+h(Fluent.Select,{id:'mtp-key',value:selectedKey?.id||'',disabled:busy,onChange:e=>{keyTouchedRef.current=true;setKeyId(e.target.value||null);}},
 h('option',{value:''},t.keyPlaceholder),
 keys.map(k=>h('option',{key:k.id,value:k.id},(k.alias||k.key_id||k.id)+(k.status?' ('+k.status+')':'')))),
-keys.length===0&&h(Fluent.Text,{size:200},t.keyDisabled));
+resourceLoading.keys&&h(Fluent.Spinner,{size:'tiny',label:t.loadingKeys,labelPosition:'after'}),
+!resourceLoading.keys&&keys.length===0&&h(Fluent.Text,{size:200},t.keyDisabled));
 
 const routeInfo=selectedRoute&&h('div',{style:styles.row},
 h(Fluent.Badge,{appearance:'outline',color:'informative'},selectedRoute.protocol),
@@ -391,30 +442,32 @@ h(Fluent.Text,{size:200},t.model+': '+selectedRoute.public_model),
 h(Fluent.Text,{size:200},t.upstream+': '+selectedRoute.upstream_model));
 
 const notices=h('div',{style:{display:'flex',flexDirection:'column',gap:6}},
-h(Fluent.MessageBar,{intent:'info'},h(Fluent.MessageBarBody,null,t.billing,' ',t.noAccess)),
+loadState.status==='error'&&h(Fluent.MessageBar,{intent:'error'},h(Fluent.MessageBarBody,null,loadState.error?.message||t.error,' ',h(Fluent.Button,{size:'small',onClick:()=>setReloadTick(n=>n+1)},t.retry))),
 statusNote&&h(Fluent.MessageBar,{intent:statusNote.intent},h(Fluent.MessageBarBody,null,statusNote.text)));
 
 const transcript=h('div',{style:styles.chat,role:'log','aria-live':'polite','aria-label':t.title},
 messages.map((m,i)=>h('div',{key:'m'+i,style:m.role==='user'?styles.msgUser:styles.msgAssistant},
 h(Fluent.Text,{size:200,weight:'semibold',style:{display:'block',marginBottom:2}},m.role==='user'?t.roleUser:t.roleAssistant),
-m.content||(m._live?t.assistantThinking:''))),
+h(MessageContent,{message:m,t}),
+(m.images||[]).map((image,j)=>/^data:image\/(png|jpeg|webp);base64,/.test(image.dataUrl||'')&&h('a',{key:'image'+j,href:image.dataUrl,download:'generated-image-'+(i+1)+'-'+(j+1)+'.'+(image.mimeType==='image/jpeg'?'jpg':image.mimeType==='image/webp'?'webp':'png'),'aria-label':t.generatedImage},h('img',{src:image.dataUrl,alt:t.generatedImage,style:{display:'block',maxWidth:'100%',maxHeight:480,borderRadius:8,marginTop:8}}))))),
 tools.map((tl,i)=>h('div',{key:'t'+i,style:styles.msgTool},t.tool+': '+tl.name+(tl.status?' · '+tl.status:'')+(tl.result?' — '+tl.result:''))),
 busy&&h('div',{style:styles.row},h(Fluent.Spinner,{size:'tiny'}),h(Fluent.Text,{size:200},t.running)));
 
 const composer=h('div',{style:styles.composer},
-h(Fluent.Textarea,{value:draft,disabled:busy,'aria-label':t.input,placeholder:t.input,resize:'vertical',style:{flex:'1 1 180px',minWidth:0},onChange:(e,d)=>setDraft(d&&d.value!=null?d.value:''),onKeyDown:e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}}}),
+h(Fluent.Textarea,{value:draft,disabled:busy,'aria-label':t.input,placeholder:t.input,resize:'vertical',style:{flex:'1 1 180px',minWidth:0},onChange:(e,d)=>setDraft(d&&d.value!=null?d.value:''),onKeyDown:e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.nativeEvent?.isComposing){e.preventDefault();send();}}}),
 h(Fluent.Button,{appearance:'primary',disabled:busy||!draft.trim()||!selectedRoute||!selectedKey,onClick:send},t.send),
 h(Fluent.Button,{disabled:!busy,onClick:stopRun},t.stop),
 h(Fluent.Button,{'data-playground-clear':true,disabled:busy,onClick:clearChat},t.clear));
 
-body=h(React.Fragment,null,h('div',{style:styles.filters},modelField,keyField),routeInfo,
-h(Fluent.Checkbox,{label:t.enableTools,checked:enableTools,disabled:busy,onChange:(_e,data)=>setEnableTools(data.checked===true)}),
+const body=h(React.Fragment,null,h('div',{style:styles.filters},modelField,keyField),routeInfo,
+h('div',{style:styles.row},
+h(Fluent.Checkbox,{label:t.enableTools,checked:enableTools,disabled:busy,'aria-describedby':'mtp-tools-help',onChange:(_e,data)=>setEnableTools(data.checked===true)}),
+h(Fluent.Tooltip,{content:t.toolsHelp,relationship:'description'},h(Fluent.Button,{id:'mtp-tools-help',size:'small',appearance:'subtle','aria-label':t.toolsHelp},'?')),
+selectedRoute?.protocol!=='anthropic'&&h(React.Fragment,null,h(Fluent.Checkbox,{label:t.imageGeneration,checked:enableImageGeneration,disabled:busy,onChange:(_e,data)=>setEnableImageGeneration(data.checked===true)}),h(Fluent.Tooltip,{content:t.imageHelp,relationship:'description'},h(Fluent.Button,{size:'small',appearance:'subtle','aria-label':t.imageHelp},'?')))),
 notices,transcript,composer);
-}
 
 return h('div',{style:styles.root,ref:rootRef},
 header,
-filterBar,
 body,
 h(ReviewDialog,{request:review,t:t,onResolve:resolveReview}));
 }
@@ -441,7 +494,7 @@ Fluent=FluentHost;
 return defineOperatorUiPackage({
 apiVersion:'operator-ui-package-v1',
 pluginId:'mtc-text-playground',
-compatiblePluginVersions:['1.0.0'],
+compatiblePluginVersions:['1.0.0','1.1.0'],
 components:{workspace:Workspace,'open-model':OpenModel}
 });
 }

@@ -33,6 +33,8 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24.18.0
+      - name: Install reviewed playground dependencies from lockfile
+        run: npm ci --prefix playground --ignore-scripts --legacy-peer-deps
       - name: Verify and build the self-contained UI package
         run: |
           node --test playground/agent-loop.test.mjs playground/test/ui-unit.test.mjs playground/test/release-evidence.test.mjs
