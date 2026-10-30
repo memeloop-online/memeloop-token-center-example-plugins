@@ -1,18 +1,19 @@
 # Third-party notices
 
-## MemeLoop React UI message display primitives
+## MemeLoop React UI chat components
 
 Package: `@memeloop/react-ui@0.2.10` (MIT).
 Source: https://github.com/memeloop-online/memeloop/tree/main/packages/memeloop-react-ui
 Registry: https://www.npmjs.com/package/@memeloop/react-ui/v/0.2.10
 
-The plugin bundles the official `@memeloop/react-ui/chat/core` message display
-projection and truncation metadata functions. Display projections keep long
-replies manageable while the conversation retains its complete message text.
-The installed package is tree-shaken into the single browser module; its MUI,
-assistant-ui and React component implementations are not included.
+The plugin bundles the official `@memeloop/react-ui/chat` runtime provider,
+thread, message and composer components. Its controlled adapter connects these
+components to the plugin's core inference and agent execution calls. Message
+projections and attachment hydration use the package's existing display
+contracts. The UI also includes the official MUI, Emotion and assistant-ui
+dependencies required by those components, tree-shaken into one browser module.
 
-The display primitives use `memeloop@0.3.9` (MIT) for message metadata validation.
+The chat components use `memeloop@0.3.9` (MIT) for message projections and metadata validation.
 Registry: https://www.npmjs.com/package/memeloop/v/0.3.9
 This package complements the separately pinned orchestration script below;
 it does not replace that script's agent execution loop. Both npm packages
@@ -27,7 +28,12 @@ Source: https://github.com/memeloop-online/memeloop/blob/7e9aec265a8870ec45cd186
 Pinned revision: `7e9aec265a8870ec45cd186112d65108fb6b606d`.
 The upstream `memeloop` package declares the MIT license. The upstream repository does not provide a root LICENSE file at this revision. The unchanged script is preserved in `playground/memeloop-runtime/default.mjs` and included in the self-contained browser bundle. See the adjacent source integration README for the adapter boundary.
 
-The host supplies React and Fluent UI through its component package contract; they are not redistributed by this plugin. The remaining plugin sources are covered by the repository's Apache-2.0 license.
+The host supplies React, React DOM, the React JSX runtime and Fluent UI through
+its component package contract; they are not redistributed by this plugin.
+The package build appends the license and notice files for every npm package
+that contributes code to the browser module. Its evidence records package
+versions, declared licenses and contributed byte counts. The remaining plugin
+sources are covered by the repository's Apache-2.0 license.
 
 MIT license terms (the dependency's declared license):
 

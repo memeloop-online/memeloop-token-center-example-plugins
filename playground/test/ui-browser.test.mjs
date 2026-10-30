@@ -11,9 +11,11 @@ const root=fileURLToPath(new URL('../../',import.meta.url));
 const fixture=`
 import React from 'react';
 import {createRoot} from 'react-dom/client';
+import * as ReactDOM from 'react-dom';
+import * as ReactJSXRuntime from 'react/jsx-runtime';
 import * as Fluent from '@fluentui/react-components';
 import {activateOperatorUi} from './dist/playground/mtc-text-playground/ui/playground.mjs';
-const pkg=activateOperatorUi({React,Fluent,defineOperatorUiPackage:x=>x});
+const pkg=activateOperatorUi({React,ReactDOM,ReactJSXRuntime,Fluent,defineOperatorUiPackage:x=>x});
 const route={id:'route-1',public_model:'text-model',upstream_model:'upstream',enabled:true,protocol:'openai',route_group_ids:['general'],created_at:1};
 const anthropicRoute={...route,id:'route-2',public_model:'anthropic-model',protocol:'anthropic'};
 window.requests=[];window.responses=[];window.navigations=[];let iteration=0;let routeLoads=0;
@@ -133,17 +135,24 @@ test('actual plugin mounts, sends, reviews, stops and navigates in Chromium',{ti
   // Official chat display bounds affect rendering only, even after expand/collapse.
   await page.goto(url+'?mode=long-message');await choose();await send();
   const expand=page.getByRole('button',{name:'Show full message',exact:true});await expand.waitFor();
-  assert.equal(await expand.getAttribute('aria-expanded'),'false');
-  const projectedId=await expand.getAttribute('aria-controls');assert.ok(projectedId);
   const original=await page.evaluate(()=>window.responses[0].choices[0].message.content);
-  const projection=await page.evaluate(id=>document.getElementById(id)?.textContent,projectedId);
-  assert.ok(projection.length<original.length);assert.equal(projection.includes('ORIGINAL_RESPONSE_END'),false);
+  const transcript=page.getByRole('log');
+  const projection=await transcript.innerText();assert.ok(projection.length<original.length);
+  assert.equal(projection.includes('ORIGINAL_RESPONSE_END'),false);
   await expand.click();
   const collapse=page.getByRole('button',{name:'Collapse message',exact:true});await collapse.waitFor();
-  assert.equal(await collapse.getAttribute('aria-expanded'),'true');
-  assert.equal(await page.evaluate(id=>document.getElementById(id)?.textContent,projectedId),original);
+  // Official details fetch bounded pages. Exercise the public pagination UI
+  // through the final page instead of assuming one click renders the full body.
+  const loadMore=page.getByRole('button',{name:'Load more',exact:true});
+  await loadMore.waitFor();let detailPages=0;
+  while(await loadMore.count()){
+   assert.ok(detailPages++<10,'detail pagination must advance to completion');
+   const previousText=await transcript.innerText();await loadMore.click();
+   await page.waitForFunction(previous=>{const text=document.querySelector('[role=log]')?.innerText||'';return text.length>previous.length+1000||text.includes('ORIGINAL_RESPONSE_END');},previousText);
+  }
+  assert.ok(detailPages>0);assert.equal((await transcript.innerText()).includes('ORIGINAL_RESPONSE_END'),true);
   await collapse.click();await expand.waitFor();
-  assert.equal(await page.evaluate(id=>document.getElementById(id)?.textContent,projectedId),projection);
+  assert.equal((await transcript.innerText()).includes('ORIGINAL_RESPONSE_END'),false);
   await send();await page.getByRole('log').filter({hasText:'Hello from model'}).waitFor();
   assert.equal(await page.evaluate(()=>window.requests.filter(r=>r.body?.request)[1].body.request.messages.find(m=>m.role==='assistant').content),original);
 
@@ -178,22 +187,28 @@ test('actual plugin mounts, sends, reviews, stops and navigates in Chromium',{ti
   const changedKey=await page.evaluate(()=>window.requests.filter(r=>r.body?.request).at(-1).body.conversation);
   assert.notEqual(changedKey.id,cleared.id);assert.equal(Object.hasOwn(changedKey,'parent_turn_id'),false);
   await page.evaluate(()=>window.changeTenant());await page.waitForFunction(()=>document.querySelector('#mtp-key')?.value==='key-1');
-  assert.equal(await page.getByRole('log').innerText(),'');await send();await page.getByText('Done · Iterations:',{exact:false}).waitFor();
+  assert.equal(await page.getByRole('log').getByText('Hello from model',{exact:true}).count(),0);
+  assert.equal(await page.getByRole('log').getByText('Inspect workspace',{exact:true}).count(),0);await send();await page.getByText('Done · Iterations:',{exact:false}).waitFor();
   assert.notEqual(await page.evaluate(()=>window.requests.filter(r=>r.body?.request).at(-1).body.conversation.id),changedKey.id);
   assert.ok(await page.evaluate(()=>window.requests.some(r=>r.path.includes('tenant_external_id=tenant-b'))));
 
   await page.goto(url);await choose();await page.getByRole('checkbox',{name:'Allow assistant product tools',exact:true}).uncheck();
   await page.getByRole('checkbox',{name:'Generate images',exact:true}).check();await send();
-  const image=page.getByRole('img',{name:'Generated image',exact:true});await image.waitFor();
+  const image=page.getByRole('img',{name:/^Generated image(?::|$)/});await image.waitFor();
+  assert.equal(await image.getAttribute('data-testid'),'message-image-attachment');assert.match(await image.getAttribute('src'),/^blob:/);
   await image.evaluate(el=>el.decode());assert.equal(await image.evaluate(el=>el.complete&&el.naturalWidth>0),true);
   const imageRequest=await page.evaluate(()=>window.requests.find(r=>r.path==='/internal/v1/inference/responses'));
   assert.deepEqual(imageRequest.body.request.tools,[{type:'image_generation',model:'gpt-image-2'}]);
   assert.deepEqual(imageRequest.body.request.tool_choice,{type:'image_generation'});
   assert.ok(imageRequest.body.conversation.id);assert.equal(imageRequest.body.key_id,'key-1');
   const download=page.getByRole('link',{name:'Generated image',exact:true});
-  assert.match(await download.getAttribute('href'),/^data:image\/png;base64,/);assert.match(await download.getAttribute('download'),/\.png$/);
+  assert.match(await download.getAttribute('href'),/^(?:blob:|data:image\/png;base64,)/);assert.match(await download.getAttribute('download'),/\.png$/);
+  const downloaded=page.waitForEvent('download');await download.click();const generatedFile=await downloaded;
+  assert.equal(await generatedFile.failure(),null);assert.match(generatedFile.suggestedFilename(),/\.png$/);
+  const imageStream=await generatedFile.createReadStream();const imageBytes=[];for await(const chunk of imageStream)imageBytes.push(chunk);
+  assert.deepEqual(Buffer.concat(imageBytes).subarray(0,8),Buffer.from([137,80,78,71,13,10,26,10]));
   await page.goto(url+'?mode=partial-image');await choose();await page.getByRole('checkbox',{name:'Generate images',exact:true}).check();await send();
-  await page.getByText('An error occurred:',{exact:false}).waitFor();assert.equal(await page.getByRole('img',{name:'Generated image',exact:true}).count(),0);
+  await page.getByText('An error occurred:',{exact:false}).waitFor();assert.equal(await page.getByRole('img',{name:/^Generated image(?::|$)/}).count(),0);
 
   for(const approval of ['Cancel','Approve']){
    await page.goto(url+'?mode=mutation');await choose();await send();

@@ -1,5 +1,5 @@
 import {runAgentLoop} from '../agent-loop.mjs';
-import {boundMessageForDisplay,getDisplayTruncation} from '@memeloop/react-ui/chat/core';
+import {PlaygroundChat} from './chat-adapter.mjs';
 
 let React,Fluent;
 const PAGE=100;
@@ -29,6 +29,14 @@ toolsHelp:'助手可以查询产品中的模型、请求和用量，也可以提
 imageGeneration:'生成图片',
 imageHelp:'使用所选模型调用 GPT Image 2 生成图片，图片会显示在对话中。',
 generatedImage:'生成的图片',
+downloadImage:'下载图片',
+imageLoadFailed:'图片加载失败，请重试。',
+reloadMessage:'重新加载',
+loadMore:'继续阅读',
+moreMessage:'展开阅读完整内容',
+downloadMessage:'下载全文',
+toolInput:'工具输入',
+toolOutput:'工具结果',
 expandMessage:'展开全文',
 collapseMessage:'收起全文',
 otherModels:'其他模型',
@@ -81,6 +89,14 @@ toolsHelp:'The assistant can look up models, requests and usage, and propose con
 imageGeneration:'Generate images',
 imageHelp:'Use the selected model to call GPT Image 2. Generated images appear in the conversation.',
 generatedImage:'Generated image',
+downloadImage:'Download image',
+imageLoadFailed:'Image loading failed. Please try again.',
+reloadMessage:'Reload',
+loadMore:'Load more',
+moreMessage:'Open the full message to continue reading',
+downloadMessage:'Download full message',
+toolInput:'Tool input',
+toolOutput:'Tool output',
 expandMessage:'Show full message',
 collapseMessage:'Collapse message',
 otherModels:'Other models',
@@ -153,26 +169,9 @@ const styles={
 root:{display:'flex',flexDirection:'column',gap:12,padding:16,background:'var(--colorNeutralBackground1)',color:'var(--colorNeutralForeground1)',minHeight:0,fontFamily:'inherit'},
 filters:{display:'flex',flexWrap:'wrap',gap:12,alignItems:'flex-end'},
 field:{display:'flex',flexDirection:'column',gap:4,minWidth:180,flex:'1 1 180px'},
-chat:{display:'flex',flexDirection:'column',gap:8,border:'1px solid var(--colorNeutralStroke2)',borderRadius:8,padding:12,background:'var(--colorNeutralBackground2)',minHeight:220,maxHeight:420,overflowY:'auto'},
-msgUser:{alignSelf:'flex-end',background:'var(--colorBrandBackground2)',color:'var(--colorBrandForeground2)',borderRadius:8,padding:'6px 10px',maxWidth:'80%',whiteSpace:'pre-wrap',wordBreak:'break-word'},
-msgAssistant:{alignSelf:'flex-start',background:'var(--colorNeutralBackground1)',border:'1px solid var(--colorNeutralStroke2)',borderRadius:8,padding:'6px 10px',maxWidth:'80%',whiteSpace:'pre-wrap',wordBreak:'break-word'},
-msgTool:{alignSelf:'flex-start',background:'var(--colorNeutralBackground3)',borderRadius:8,padding:'4px 8px',maxWidth:'80%',fontSize:12,color:'var(--colorNeutralForeground2)'},
-composer:{display:'flex',flexWrap:'wrap',gap:8,alignItems:'flex-end'},
 row:{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'},
 pre:{background:'var(--colorNeutralBackground3)',padding:8,borderRadius:4,overflowX:'auto',fontSize:12,maxHeight:180}
 };
-
-function MessageContent({message,t}){
-const h=React.createElement;
-const [expanded,setExpanded]=React.useState(false);
-const contentId=React.useId();
-// Bound only the rendered projection. Full messages remain intact for inference.
-const projection=React.useMemo(()=>boundMessageForDisplay(message),[message]);
-const truncated=getDisplayTruncation(projection)?.contentTruncated===true;
-return h(React.Fragment,null,
-h('div',{id:contentId},(expanded?message.content:projection.content)||(message._live?t.assistantThinking:'')),
-truncated&&h(Fluent.Button,{size:'small',appearance:'subtle','aria-expanded':expanded,'aria-controls':contentId,onClick:()=>setExpanded(value=>!value)},expanded?t.collapseMessage:t.expandMessage));
-}
 
 function ReviewDialog({request,t,onResolve}){
 const h=React.createElement;
@@ -202,7 +201,6 @@ const [modelId,setModelId]=React.useState(null);
 const [keyId,setKeyId]=React.useState(null);
 const [messages,setMessages]=React.useState([]);
 const [tools,setTools]=React.useState([]);
-const [draft,setDraft]=React.useState('');
 const [busy,setBusy]=React.useState(false);
 const [enableTools,setEnableTools]=React.useState(true);
 const [statusNote,setStatusNoteState]=React.useState(null);
@@ -237,7 +235,7 @@ sendMutexRef.current=false;
 modelTouchedRef.current=false;keyTouchedRef.current=false;
 conversationRef.current={id:crypto.randomUUID(),lastTurnId:null};
 setRoutes([]);setKeys([]);setGroups([]);setSettings(null);setSearch('');setModelOpen(false);setEnableImageGeneration(false);
-setBusy(false);setMessages([]);setTools([]);setReview(null);setModelId(null);setKeyId(null);setDraft('');setStatusNote(null);
+setBusy(false);setMessages([]);setTools([]);setReview(null);setModelId(null);setKeyId(null);setStatusNote(null);
 return()=>{
 generationRef.current++;
 mountedRef.current=false;
@@ -342,12 +340,12 @@ if(reviewResolveRef.current)resolveReview(false);
 setStatusNote(t.stopNote,'warning');
 };
 
-const send=async()=>{
+const send=async(input)=>{
 if(sendMutexRef.current||busy)return;
-const text=draft.trim();
+const text=input.trim();
 if(!text)return;
-if(!selectedRoute){setStatusNote(t.selectModelFirst,'warning');return;}
-if(!selectedKey){setStatusNote(t.selectKeyFirst,'warning');return;}
+if(!selectedRoute)throw new Error(t.selectModelFirst);
+if(!selectedKey)throw new Error(t.selectKeyFirst);
 sendMutexRef.current=true;
 setBusy(true);
 setStatusNote(null);
@@ -358,7 +356,6 @@ const current=()=>mountedRef.current&&generationRef.current===generation;
 abortRef.current=ctrl;
 const base=messages.concat([{role:'user',content:text}]);
 setMessages(base);
-setDraft('');
 try{
 const result=await runAgentLoop({
 api,
@@ -382,7 +379,7 @@ if(ev.type==='assistant'&&ev.message){
 const content=ev.message.content;
 setMessages(prev=>prev.concat([{...ev.message,role:'assistant',content:typeof content==='string'?content:''}]));
 }else if(ev.type==='tool'){
-setTools(prev=>prev.concat([{name:ev.name||t.tool,status:ev.status||'',result:ev.result!=null?truncate(ev.result,MAX_TOOL_RESULT):null}]).slice(-50));
+setTools(prev=>prev.concat([{id:crypto.randomUUID(),name:ev.name||t.tool,status:ev.status||'',result:ev.result!=null?truncate(ev.result,MAX_TOOL_RESULT):null}]).slice(-50));
 }
 }
 });
@@ -403,8 +400,8 @@ if(!current())return;
 if(err&&err.name==='AbortError'){
 setStatusNote(t.stopNote,'warning');
 }else{
-setDraft(text);
 setStatusNote(t.error+': '+(err&&err.message?err.message:String(err)),'error');
+throw err;
 }
 }finally{
 if(abortRef.current===ctrl)abortRef.current=null;
@@ -447,26 +444,18 @@ const notices=h('div',{style:{display:'flex',flexDirection:'column',gap:6}},
 loadState.status==='error'&&h(Fluent.MessageBar,{intent:'error'},h(Fluent.MessageBarBody,null,loadState.error?.message||t.error,' ',h(Fluent.Button,{size:'small',onClick:()=>setReloadTick(n=>n+1)},t.retry))),
 statusNote&&h(Fluent.MessageBar,{intent:statusNote.intent},h(Fluent.MessageBarBody,null,statusNote.text)));
 
-const transcript=h('div',{style:styles.chat,role:'log','aria-live':'polite','aria-label':t.title},
-messages.map((m,i)=>h('div',{key:'m'+i,style:m.role==='user'?styles.msgUser:styles.msgAssistant},
-h(Fluent.Text,{size:200,weight:'semibold',style:{display:'block',marginBottom:2}},m.role==='user'?t.roleUser:t.roleAssistant),
-h(MessageContent,{message:m,t}),
-(m.images||[]).map((image,j)=>/^data:image\/(png|jpeg|webp);base64,/.test(image.dataUrl||'')&&h('a',{key:'image'+j,href:image.dataUrl,download:'generated-image-'+(i+1)+'-'+(j+1)+'.'+(image.mimeType==='image/jpeg'?'jpg':image.mimeType==='image/webp'?'webp':'png'),'aria-label':t.generatedImage},h('img',{src:image.dataUrl,alt:t.generatedImage,style:{display:'block',maxWidth:'100%',maxHeight:480,borderRadius:8,marginTop:8}}))))),
-tools.map((tl,i)=>h('div',{key:'t'+i,style:styles.msgTool},t.tool+': '+tl.name+(tl.status?' · '+tl.status:'')+(tl.result?' — '+tl.result:''))),
-busy&&h('div',{style:styles.row},h(Fluent.Spinner,{size:'tiny'}),h(Fluent.Text,{size:200},t.running)));
-
-const composer=h('div',{style:styles.composer},
-h(Fluent.Textarea,{value:draft,disabled:busy,'aria-label':t.input,placeholder:t.input,resize:'vertical',style:{flex:'1 1 180px',minWidth:0},onChange:(e,d)=>setDraft(d&&d.value!=null?d.value:''),onKeyDown:e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.nativeEvent?.isComposing){e.preventDefault();send();}}}),
-h(Fluent.Button,{appearance:'primary',disabled:busy||!draft.trim()||!selectedRoute||!selectedKey,onClick:send},t.send),
-h(Fluent.Button,{disabled:!busy,onClick:stopRun},t.stop),
-h(Fluent.Button,{'data-playground-clear':true,disabled:busy,onClick:clearChat},t.clear));
+const chat=h(PlaygroundChat,{
+key:conversationRef.current.id||'initial',conversationId:conversationRef.current.id||'initial',
+messages,tools,busy,ready:!!selectedRoute&&!!selectedKey,send,stop:stopRun,clear:clearChat,t,Fluent,
+onError:error=>setStatusNote(t.error+': '+(error?.message||String(error)),'error')
+});
 
 const body=h(React.Fragment,null,h('div',{style:styles.filters},modelField,keyField),routeInfo,
 h('div',{style:styles.row},
 h(Fluent.Checkbox,{label:t.enableTools,checked:enableTools,disabled:busy,'aria-describedby':'mtp-tools-help',onChange:(_e,data)=>setEnableTools(data.checked===true)}),
 h(Fluent.Tooltip,{content:t.toolsHelp,relationship:'description'},h(Fluent.Button,{id:'mtp-tools-help',size:'small',appearance:'subtle','aria-label':t.toolsHelp},'?')),
 selectedRoute?.protocol!=='anthropic'&&h(React.Fragment,null,h(Fluent.Checkbox,{label:t.imageGeneration,checked:enableImageGeneration,disabled:busy,onChange:(_e,data)=>setEnableImageGeneration(data.checked===true)}),h(Fluent.Tooltip,{content:t.imageHelp,relationship:'description'},h(Fluent.Button,{size:'small',appearance:'subtle','aria-label':t.imageHelp},'?')))),
-notices,transcript,composer);
+notices,chat);
 
 return h('div',{style:styles.root,ref:rootRef},
 header,

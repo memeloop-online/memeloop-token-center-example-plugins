@@ -1,9 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as React from 'react';
+import * as ReactDOM from 'react-dom';
+import * as ReactJSXRuntime from 'react/jsx-runtime';
 import {fetchPages,normalizeKeys,activateOperatorUi} from '../ui/playground.mjs';
 
 test('activates with injected host bindings and registers both components',()=>{
- const pkg=activateOperatorUi({React:{},Fluent:{},defineOperatorUiPackage:x=>x});
+ const pkg=activateOperatorUi({React,ReactDOM,ReactJSXRuntime,Fluent:{},defineOperatorUiPackage:x=>x});
  assert.equal(typeof pkg.components.workspace,'function');
  assert.equal(typeof pkg.components['open-model'],'function');
 });

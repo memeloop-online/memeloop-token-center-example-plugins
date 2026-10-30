@@ -20,6 +20,10 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24.18.0
+      # Temporary remote lock refresh for the new official chat UI peers.
+      # Commit the uploaded lockfile and remove this step after review.
+      - name: Refresh playground dependency lock in CI
+        run: npm install --package-lock-only --ignore-scripts --prefix playground --legacy-peer-deps
       - name: Preserve playground dependency lock for source review
         uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4
         with:
