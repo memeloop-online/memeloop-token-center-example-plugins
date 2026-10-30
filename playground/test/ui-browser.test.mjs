@@ -20,6 +20,24 @@ const route={id:'route-1',public_model:'text-model',upstream_model:'upstream',en
 const anthropicRoute={...route,id:'route-2',public_model:'anthropic-model',protocol:'anthropic'};
 window.requests=[];window.responses=[];window.navigations=[];let iteration=0;let routeLoads=0;
 const png='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGMwajjwHwAEzAJy+GEfCwAAAABJRU5ErkJggg==';
+// A valid ancillary PNG chunk makes distinct, decodable images large enough
+// to exercise the attachment batch budget without changing their tiny pixels.
+const paddedPng=marker=>{
+ const original=Uint8Array.from(atob(png),character=>character.charCodeAt(0));
+ const bytes=new Uint8Array(9*1024*1024);const offset=original.length-12;
+ bytes.set(original.subarray(0,offset));
+ const length=bytes.length-original.length-12;const view=new DataView(bytes.buffer);
+ view.setUint32(offset,length);bytes.set([110,112,65,100],offset+4);
+ bytes.fill(marker,offset+8,offset+8+length);
+ let crc=0xffffffff;
+ for(let index=offset+4;index<offset+8+length;index++){
+  crc^=bytes[index];for(let bit=0;bit<8;bit++)crc=(crc>>>1)^((crc&1)?0xedb88320:0);
+ }
+ view.setUint32(offset+8+length,(crc^0xffffffff)>>>0);
+ bytes.set(original.subarray(offset),bytes.length-12);
+ let binary='';for(let index=0;index<bytes.length;index+=32768)binary+=String.fromCharCode(...bytes.subarray(index,index+32768));
+ return btoa(binary);
+};
 const mode=new URLSearchParams(location.search).get('mode');
 const longMessage='Full assistant response start. '+('Detailed product analysis. '.repeat(2400))+' ORIGINAL_RESPONSE_END';
 if(mode==='multi-group')route.route_group_ids=['general','featured'];
@@ -45,7 +63,8 @@ const api={navigate:(...args)=>window.navigations.push(args),discoverApi:async()
   return [{key_id:'key-1',alias:'Billing',created_at:1},{key_id:'key-2',alias:'Second billing',created_at:0}];
  }
  if(req.path==='/internal/v1/inference/responses'){
-  const response={id:'response-image',status:mode==='partial-image'?'in_progress':'completed',output:[{type:'image_generation_call',status:'completed',result:png}]};window.responses.push(response);return response;
+  const results=mode==='duplicate-images'?[png,png]:mode==='budget-images'?[paddedPng(1),paddedPng(2)]:[png];
+  const response={id:'response-image',status:mode==='partial-image'?'in_progress':'completed',output:results.map(result=>({type:'image_generation_call',status:'completed',result}))};window.responses.push(response);return response;
  }
  if(req.path==='/internal/v1/widgets')return {ok:true};
  if(req.path==='/internal/v1/inference/messages'){
@@ -207,6 +226,30 @@ test('actual plugin mounts, sends, reviews, stops and navigates in Chromium',{ti
   assert.equal(await generatedFile.failure(),null);assert.match(generatedFile.suggestedFilename(),/\.png$/);
   const imageStream=await generatedFile.createReadStream();const imageBytes=[];for await(const chunk of imageStream)imageBytes.push(chunk);
   assert.deepEqual(Buffer.concat(imageBytes).subarray(0,8),Buffer.from([137,80,78,71,13,10,26,10]));
+  for(const mode of ['duplicate-images','budget-images']){
+   await page.goto(url+'?mode='+mode);await choose();
+   await page.getByRole('checkbox',{name:'Generate images',exact:true}).check();await send();
+   await page.getByText('Done · Iterations:',{exact:false}).waitFor();
+   const previews=page.getByRole('img',{name:/^Generated image(?::|$)/});
+   await previews.first().waitFor();await previews.first().evaluate(el=>el.decode());
+   assert.equal(await previews.first().evaluate(el=>el.complete&&el.naturalWidth===1),true,mode+' retains a decoded preview');
+   const originals=page.getByRole('link',{name:'Generated image',exact:true});
+   await originals.nth(1).waitFor();assert.equal(await originals.count(),2,mode+' retains every original');
+   const files=[];
+   for(let index=0;index<2;index++){
+    const pending=page.waitForEvent('download');await originals.nth(index).click();const file=await pending;
+    assert.equal(await file.failure(),null);assert.match(file.suggestedFilename(),/\.png$/);
+    const chunks=[];for await(const chunk of await file.createReadStream())chunks.push(chunk);
+    const bytes=Buffer.concat(chunks);files.push(bytes);
+    assert.deepEqual(bytes.subarray(0,8),Buffer.from([137,80,78,71,13,10,26,10]));
+    if(mode==='budget-images'){
+     assert.equal(bytes.length,9*1024*1024);assert.equal(bytes[bytes.length-17],index+1);
+    }
+   }
+   if(mode==='duplicate-images')assert.deepEqual(files[0],files[1]);
+   else assert.ok(files[0].length+files[1].length>16*1024*1024);
+   assert.equal(await page.getByText('An error occurred:',{exact:false}).count(),0);
+  }
   await page.goto(url+'?mode=partial-image');await choose();await page.getByRole('checkbox',{name:'Generate images',exact:true}).check();await send();
   await page.getByText('An error occurred:',{exact:false}).waitFor();assert.equal(await page.getByRole('img',{name:/^Generated image(?::|$)/}).count(),0);
 
