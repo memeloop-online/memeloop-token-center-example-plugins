@@ -93,3 +93,53 @@ describe('private concurrency evidence', () => {
     expect(proxy.recommendation).toBeNull();
   });
 });
+
+describe('actual proxy endpoint binding', () => {
+  function selected(host = 'PROXY.Example', member = 'one') {
+    return { kind: 'proxy', scheme: 'http', host, port: 8080, member_id: member, group_name: 'not-an-identity' };
+  }
+  function boundObservation() {
+    const raw = observation();
+    raw.series[0]!.dimension = 'network_proxy';
+    raw.series[0]!.identity = 'core-blake3-identity';
+    raw.series[0]!.measurement_basis = 'live_owner_with_unfinished_egress_attempt';
+    raw.series[0]!.sample_ids = ['live-example'];
+    return { ...raw, samples: [{ sample_id: 'live-example', tenant_external_id: 'tenant-a', source: 'request_owner',
+      lease_state: 'live', egress_state: 'unfinished_attempt', selected_egress: selected() }] };
+  }
+  function proxyOutcome(i: number, high: boolean) {
+    const r = request(i, high);
+    const decoded = decodeOutcome({ request_id: r.id, created_at: r.createdAt, completed_at: r.endedAt,
+      lifecycle_state: 'succeeded', upstream_account_id: r.account, model: r.model, upstream_model: r.upstreamModel,
+      protocol: r.protocol, route_id: r.route, duration_ms: r.latencyMs, generation_duration_ms: r.generationMs,
+      input_tokens: r.inputTokens, output_tokens: r.outputTokens, usage_basis: r.usageBasis,
+      egress: { selected: selected('proxy.example', 'different-member') } });
+    if (!decoded) throw new Error('invalid proxy fixture');
+    return decoded;
+  }
+
+  it('uses examples only to bind identity and includes all final outcomes for the actual endpoint', () => {
+    const decoded = decodeConcurrency(boundObservation(), 'tenant-a', now);
+    const rows = Array.from({ length: 2_000 }, (_, i) => [proxyOutcome(i, false), proxyOutcome(i, true)]).flat();
+    const result = computeAdvice(decoded, rows, policy, now);
+    const proxy = result.series[0]!;
+    expect(proxy.coverage.matchedRequests).toBe(4_000);
+    expect(proxy.recommendation).toMatchObject({ concurrencyRange: { from: 5, to: 5 } });
+    expect(JSON.stringify(result)).not.toContain('proxy.example');
+    expect(JSON.stringify(result)).not.toContain('proxyEndpointKey');
+    expect(JSON.stringify(result)).not.toContain('live-example');
+    const missing = computeAdvice(decoded, [...rows, request(100)], policy, now).series[0]!;
+    expect(missing.recommendation).toBeNull();
+    expect(missing.buckets[0]!.evidence.blockers).toContain('missing_proxy_outcome_metadata_in_window');
+  });
+
+  it('rejects conflicting actual endpoint bindings and never guesses from proxy group names', () => {
+    const raw = boundObservation();
+    raw.series[0]!.sample_ids.push('other-endpoint');
+    raw.samples.push({ ...raw.samples[0]!, sample_id: 'other-endpoint', selected_egress: selected('other.example') });
+    expect(() => decodeConcurrency(raw, 'tenant-a', now)).toThrow('ambiguous_proxy_series_binding');
+    const noEndpoint = boundObservation();
+    noEndpoint.samples[0]!.selected_egress = { ...selected(), kind: 'unknown' };
+    expect(decodeConcurrency(noEndpoint, 'tenant-a', now).series[0]!.proxyEndpointKey).toBeUndefined();
+  });
+});

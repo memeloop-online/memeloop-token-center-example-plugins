@@ -124,3 +124,40 @@ describe('background advice companion', () => {
     }
   });
 });
+
+describe('background evidence integrity', () => {
+  it('retains a verified proxy binding after its example request completes', async () => {
+    let complete = false;
+    const collector = service(async (input) => {
+      if (!String(input).includes('upstream-concurrency')) return Response.json({ requests: [], next_cursor: null });
+      const raw = coreSnapshot();
+      return Response.json({ ...raw, series: [{ ...raw.series[0], dimension: 'network_proxy', identity: 'proxy-identity',
+        measurement_basis: 'live_owner_with_unfinished_egress_attempt', current: complete ? 0 : 2,
+        sample_ids: complete ? [] : ['binding-example'] }], samples: complete ? [] : [{ sample_id: 'binding-example',
+        tenant_external_id: 'tenant-a', source: 'request_owner', lease_state: 'live', egress_state: 'unfinished_attempt',
+        selected_egress: { kind: 'proxy', scheme: 'http', host: 'example.invalid', port: 8080 } }] });
+    });
+    await collector.refresh();
+    complete = true;
+    await collector.refresh();
+    expect(collector.read().series[0]).toMatchObject({ identity: 'proxy-identity', current: 0 });
+    expect(JSON.stringify(collector.read())).not.toContain('proxyEndpointKey');
+  });
+
+  it('reports rejected terminal outcomes rather than silently removing them from success coverage', async () => {
+    const collector = service(async (input) => Response.json(String(input).includes('upstream-concurrency') ? coreSnapshot()
+      : { requests: [{ request_id: 'unattributed', lifecycle_state: 'failed', upstream_account_id: null }], next_cursor: null }));
+    await collector.refresh();
+    const snapshot = collector.read();
+    expect(snapshot.collection).toMatchObject({ request_records_seen: 1, terminal_outcomes_accepted: 0, terminal_outcomes_rejected: 1 });
+    expect(snapshot.series[0]!.sampling.blockers).toContain('unattributed_or_invalid_terminal_outcomes');
+    expect(snapshot.series[0]!.recommendation).toBeNull();
+  });
+
+  it('rejects repeated cursors instead of claiming complete history', async () => {
+    const collector = service(async (input) => Response.json(String(input).includes('upstream-concurrency') ? coreSnapshot()
+      : { requests: [], next_cursor: { before_created_at: 10, before_id: '00000000-0000-0000-0000-000000000001' } }));
+    await collector.refresh();
+    expect(collector.read().collection.state).toBe('collection_failed');
+  });
+});

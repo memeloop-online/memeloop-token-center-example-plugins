@@ -24,7 +24,7 @@
 1. `GET /internal/v1/upstream-concurrency?tenant_external_id=...`，校验 `upstream_concurrency_v1`、租户、时序、上下限及重复序列。
 2. `GET /internal/v1/requests?tenant_external_id=...&paged=true&limit=500&from_created_at=...&to_created_at=...`，读取真实请求结果。按返回的 `next_cursor` 翻页，最多 8 页/4000 行；未完整翻页明确 `requests_truncated=true`，停止给建议。窗口仅覆盖实际核心历史（最多 15 分钟），不查询全量请求历史。
 
-资源上界限制的是采集量，不是客户并发。读取建议只读缓存，不触发采样。多个 control 副本、不同账号/代理和不同 measurement_basis 不相加。后台采集失败不会泄露原始异常、凭据、request IDs、样本 attribution IDs 或代理 endpoint。只有观测不新鲜时 current 变为 null；结果数据采集失败会保留新鲜 current 并关闭建议。
+资源上界限制的是采集量，不是客户并发。统计计算在后台采样任务完成时更新缓存；读取建议只投影当前新鲜度，不触发采样或重算统计。多个 control 副本、不同账号/代理和不同 measurement_basis 不相加。后台采集失败不会泄露原始异常、凭据、request IDs、样本 attribution IDs 或代理 endpoint。只有观测不新鲜时 current 变为 null；结果数据采集失败会保留新鲜 current 并关闭建议。
 
 ## 数据输出
 
@@ -45,7 +45,7 @@
 | `evidence` | 精度/观察窗要求、阻塞原因、目标样本量、剩余样本、样本与窗口进度；TPS/latency 不足仍独立给出 blocker |
 | `recommendation` | 不足时 null；充分时 observed_range_for_manual_review + 当前 cohort + 对照实测区间；不是可自动下发的 limit |
 
-请求生命周期只接受 succeeded/failed/cancelled，并从 operational_terminal.completed_at 或 completed_at 取结束时间；不会以 lease 消失推断成功。每个请求须在生命周期内至少有两个不截断采样，首尾距生命周期边界不超过一个采样间隔，中间缺口不超过两个间隔；按生命周期内最大采样 owner 数入桶。短于采样间隔、过长而越过历史窗、缺账号或不完整 lifetime 的请求不能伪装成完整实验样本。
+请求生命周期只接受 succeeded/failed/cancelled，并从 operational_terminal.completed_at 或 completed_at 取结束时间；不会以 lease 消失推断成功。每个请求须在生命周期内至少有两个不截断采样，首尾距生命周期边界不超过一个采样间隔，中间缺口不超过两个间隔；按生命周期内最大采样 owner 数入桶。短于采样间隔、过长而越过历史窗、缺账号或不完整 lifetime 的请求不能伪装成完整实验样本。`collection` 附请求记录数、接受 terminal 数、无法归属/解码的 terminal 数；有无法归属的 terminal 时关闭数值建议，避免成功率分母选择偏差。闲置或暂时没有可用 outcome 的 series 仍有 `sampling`，显示 0 样本、每桶目标、剩余量及最佳桶样本/窗口进度。
 
 ## 精度、比较与建议
 
@@ -59,11 +59,17 @@
 
 ## 代理与核心缺口
 
-当前代理 current/trend/peak 直接来自实际 `network_proxy` 观测，不从账号配置猜代理，也不创造未观测代理的 zero series。核心 samples 没有对应 BLAKE3 identity；series.sample_ids 只是最多 8 个示例，不能据此生成无偏完整 outcome 统计。代理条目明确 `missing_complete_proxy_outcome_attribution`，recommendation=null。
+当前代理 current/trend/peak 直接来自实际 `network_proxy` 观测，不从账号配置猜代理，也不创造未观测代理的 zero series。使用核心 series.sample_ids 对应 samples[].selected_egress 的实际 scheme/host/port，建立该 endpoint 与核心 BLAKE3 identity 的绑定；只在服务器内使用 endpoint tuple 的 SHA256 等值键，不把两种摘要冒充同一算法，不回传 endpoint。代理成员名字/账号/组变化不拆分实际相同 endpoint。
+
+绑定示例只用于确认 identity，**不作为统计样本筛选条件**。后台随后从完整分页历史的 request.egress.selected 匹配所有该 endpoint 的 completed outcomes，用相同实测 lifetime 分桶/统计/人工审阅规则。因此请求 ID 没出现在最多 8 个例子中，也可进入统计。已验证绑定在当前进程内保留最多核心历史窗口且至多 512 条，示例结束后不立即丢失；重启后若没有实际示例重新绑定，明确显示归属缺失。全部统计仍按账号与模型等 cohort 分开，避免把同代理的不同模型负载混为一个成功率。
+
+没有可验证绑定、历史 outcome 缺少 selected metadata，或某个 terminal outcome 不能解码/归属时，不给代理数值建议，并报告缺失量。`missing_complete_proxy_outcome_attribution` / `missing_proxy_outcome_metadata_in_window` 明确解释当前进度。generic HTTP/component 缺 egress 的流量保持缺失；绝不把它们当成 direct proxy 或健康探测数据。
+
+目前 outcome 是最终 assignment 而非完整 failover attempt 历史；account 与 proxy 的区间都只是与最终 assignment 关联的 sampled owner 负载描述，不声称供应商 wire 并发。下面增强字段仍是更准确 attempt 分析与安装态交付的需求，而不是伪造为已经存在的 API。
 
 核心后续需提供下列精确字段，仍只读、按租户隔离：
 
-- completed request/outbound attempt 的稳定 proxy concurrency identity，算法与 series.identity 相同；实际 account、egress_attempt_id、开始/operational completion 时间；failover 的多 attempt 不可合为错误账号或错误代理。
+- completed request/outbound attempt 直接附稳定 proxy concurrency identity（这样不必等待示例建立绑定），算法与 series.identity 相同；实际 account、egress_attempt_id、开始/operational completion 时间；failover 的多 attempt 不可合为错误账号或错误代理。
 - 与该 outcome 对齐的实测 exposure/采样点或可验证的稳定 attempt attribution；缺失与截断标记。不能仅回传 credential/代理组配置推断实际 endpoint。
 - 如需从 owner-based 描述性范围推导供应商 wire 上限，还需真实 account/proxy HTTP exchange start/end、streaming、retry、credential/transport revision，以及模型负载可比信息；现在没有该证据，不声称已有。
 - 安装态 host 私有 data adapter：同 providers:read + requests:read、固定授权 tenant、no-store；secret 不进入 guest config/UI/公开快照。

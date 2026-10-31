@@ -31,8 +31,12 @@ export class ConcurrencyAdviceService {
   private pending: Promise<void> | undefined;
   private controller: AbortController | undefined;
   private observation: ConcurrencyObservation | undefined;
+  private snapshot: AdviceSnapshot | undefined;
   private requests: RequestOutcome[] = [];
   private requestsTruncated = false;
+  private readonly proxyBindings = new Map<string, { key: string; observedAt: number }>();
+  private requestRecordsSeen = 0;
+  private rejectedTerminalOutcomes = 0;
   private lastSuccess: number | null = null;
   private lastError: number | null = null;
   private state = 'awaiting_first_sample';
@@ -112,6 +116,18 @@ export class ConcurrencyAdviceService {
     this.controller = new AbortController();
     try {
       const observation = decodeConcurrency(await this.readCore(CONCURRENCY_PATH, {}, this.controller.signal), this.tenant, this.now());
+      for (const [id, binding] of this.proxyBindings) {
+        if (this.now() - binding.observedAt > observation.retention_ms) this.proxyBindings.delete(id);
+      }
+      for (const s of observation.series) {
+        if (s.dimension !== 'network_proxy') continue;
+        if (s.proxyEndpointKey) this.proxyBindings.set(s.identity, { key: s.proxyEndpointKey, observedAt: observation.observed_at ?? this.now() });
+        else {
+          const binding = this.proxyBindings.get(s.identity);
+          if (binding) s.proxyEndpointKey = binding.key;
+        }
+      }
+      while (this.proxyBindings.size > 512) this.proxyBindings.delete(this.proxyBindings.keys().next().value!);
       // Keep fresh counts even if outcome collection fails; old outcomes never produce a new recommendation.
       this.observation = observation;
       const earliest = observation.series.reduce((time, s) => s.points.reduce((t, p) => Math.min(t, p.observed_at), time), this.now());
@@ -119,14 +135,18 @@ export class ConcurrencyAdviceService {
         to_created_at: String(this.now()) };
       const requests = new Map<string, RequestOutcome>();
       let truncated = false;
+      let recordsSeen = 0;
+      let rejectedTerminals = 0;
       const cursors = new Set<string>();
       for (let page = 0; page < this.pages; page++) {
         const payload = object(await this.readCore(REQUESTS_PATH, params, this.controller.signal));
         if (!payload || !Array.isArray(payload.requests) || payload.requests.length > 500
           || !Object.hasOwn(payload, 'next_cursor')) throw new Error('invalid_request_page');
         for (const raw of payload.requests) {
+          recordsSeen++;
           const row = decodeOutcome(raw);
           if (row) requests.set(row.id, row);
+          else if (['succeeded', 'failed', 'cancelled'].includes(String(object(raw)?.lifecycle_state))) rejectedTerminals++;
         }
         if (payload.next_cursor === null) { truncated = false; break; }
         const cursor = object(payload.next_cursor);
@@ -142,12 +162,17 @@ export class ConcurrencyAdviceService {
       }
       this.requests = [...requests.values()];
       this.requestsTruncated = truncated;
+      this.requestRecordsSeen = recordsSeen;
+      this.rejectedTerminalOutcomes = rejectedTerminals;
       this.lastSuccess = this.now();
       this.state = 'ok';
     } catch {
       this.lastError = this.now();
       this.state = 'collection_failed';
-    } finally { this.controller = undefined; }
+    } finally {
+      this.controller = undefined;
+      if (this.observation) this.snapshot = computeAdvice(this.observation, this.requests, this.policy, this.now(), this.requestsTruncated);
+    }
   }
 
   read(): AdviceSnapshot {
@@ -155,18 +180,42 @@ export class ConcurrencyAdviceService {
     const observation = this.observation ?? { contract_version: 'upstream_concurrency_v1', observed_at: null, stale: true,
       sample_interval_ms: 5_000, retention_ms: 900_000, samples_truncated: false,
       metadata_gaps: { missing_account_samples: 0, missing_egress_samples: 0, invalid_egress_samples: 0 }, series: [] };
-    const snapshot = computeAdvice(observation, this.requests, this.policy, now, this.requestsTruncated);
-    snapshot.tenant_external_id = this.tenant;
-    snapshot.collection = { last_success_at: this.lastSuccess, last_error_at: this.lastError, state: this.state };
-    if (!this.observation) snapshot.observation.metadata_gaps = null;
-    if (this.state !== 'ok' || this.lastSuccess === null || now - this.lastSuccess > this.interval * 2) {
+    const cached = this.snapshot ?? computeAdvice(observation, [], this.policy, now);
+    // Statistical work runs in collect(). HTTP reads only project freshness onto its cache.
+    const snapshot: AdviceSnapshot = { ...cached, generated_at: now, series: cached.series.map((s) => ({ ...s,
+      trend: { ...s.trend }, sampling: { ...s.sampling, blockers: [...s.sampling.blockers] },
+      buckets: s.buckets.map((b) => ({ ...b, evidence: { ...b.evidence, blockers: [...b.evidence.blockers] } })) })) };
+    const concurrencyStale = observation.stale || observation.observed_at === null
+      || now - observation.observed_at > observation.sample_interval_ms * 2;
+    if (concurrencyStale) {
       snapshot.stale = true;
+      for (const s of snapshot.series) {
+        s.current = null;
+        s.trend = { ...s.trend, direction: 'insufficient', delta: null };
+        s.recommendation = null;
+        s.status = 'observing';
+        s.sampling.blockers.push('stale_observation');
+        for (const b of s.buckets) {
+          b.evidence.sufficient = false;
+          if (!b.evidence.blockers.includes('stale_observation')) b.evidence.blockers.push('stale_observation');
+        }
+      }
+    }
+    snapshot.tenant_external_id = this.tenant;
+    snapshot.collection = { last_success_at: this.lastSuccess, last_error_at: this.lastError, state: this.state,
+      request_records_seen: this.requestRecordsSeen, terminal_outcomes_accepted: this.requests.length,
+      terminal_outcomes_rejected: this.rejectedTerminalOutcomes };
+    if (!this.observation) snapshot.observation.metadata_gaps = null;
+    if (this.state !== 'ok' || this.lastSuccess === null || now - this.lastSuccess > this.interval * 2 || this.rejectedTerminalOutcomes > 0) {
+      const blocker = this.rejectedTerminalOutcomes > 0 ? 'unattributed_or_invalid_terminal_outcomes' : 'outcome_collection_unavailable_or_stale';
+      if (blocker === 'outcome_collection_unavailable_or_stale') snapshot.stale = true;
       for (const s of snapshot.series) {
         s.recommendation = null;
         s.status = 'observing';
+        s.sampling.blockers.push(blocker);
         for (const b of s.buckets) {
           b.evidence.sufficient = false;
-          b.evidence.blockers.push('outcome_collection_unavailable_or_stale');
+          b.evidence.blockers.push(blocker);
         }
       }
     }

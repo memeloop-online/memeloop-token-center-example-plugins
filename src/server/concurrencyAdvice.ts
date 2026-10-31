@@ -1,6 +1,8 @@
 /** Private, descriptive statistics over MTC's existing read-only observations.
  * No function in this module changes routing, admission, or account settings.
  */
+import { createHash } from 'node:crypto';
+
 export const CONCURRENCY_PATH = '/internal/v1/upstream-concurrency';
 export const REQUESTS_PATH = '/internal/v1/requests';
 export const ADVICE_PATH = '/api/health-intelligence/concurrency-advice';
@@ -17,13 +19,27 @@ function identifier(value: unknown): value is string {
 export interface Point { observed_at: number; value: number; truncated: boolean }
 export interface ConcurrencySeries {
   tenant_external_id: string; dimension: 'upstream_account' | 'network_proxy'; identity: string;
-  measurement_basis: string; current: number | null; sampled_peak: number; points: Point[]; sample_ids: string[];
+  measurement_basis: string; proxyEndpointKey?: string; current: number | null; sampled_peak: number; points: Point[]; sample_ids: string[];
 }
 export interface ConcurrencyObservation {
   contract_version: 'upstream_concurrency_v1'; observed_at: number | null; stale: boolean;
   sample_interval_ms: number; retention_ms: number; samples_truncated: boolean;
   metadata_gaps: { missing_account_samples: number; missing_egress_samples: number; invalid_egress_samples: number };
   series: ConcurrencySeries[];
+}
+
+/** Private equality key for an actual sanitized endpoint, not the core's BLAKE3 identity.
+ * A core series sample supplies the identity binding; no configured group membership is used.
+ */
+function proxyEndpointKey(value: unknown): string | null {
+  const selected = object(value);
+  if (!selected || selected.kind !== 'proxy' || typeof selected.scheme !== 'string'
+    || !['http', 'https', 'socks5', 'socks5h'].includes(selected.scheme)
+    || typeof selected.host !== 'string' || selected.host.length === 0 || selected.host.length > 253
+    || /[\u0000-\u0020\u007f/@?#\\]/u.test(selected.host)
+    || !count(selected.port) || selected.port < 1 || selected.port > 65_535) return null;
+  const host = selected.host.replace(/[A-Z]/gu, (c) => c.toLowerCase());
+  return createHash('sha256').update(JSON.stringify([selected.scheme, host, selected.port])).digest('hex');
 }
 
 /** Select only nonsecret fields; never forward samples, egress endpoints or raw errors. */
@@ -36,6 +52,18 @@ export function decodeConcurrency(value: unknown, tenant: string, now: number): 
     || !count(root.retention_ms) || root.retention_ms > 900_000 || root.retention_ms < root.sample_interval_ms
     || !gaps || !count(gaps.missing_account_samples) || !count(gaps.missing_egress_samples) || !count(gaps.invalid_egress_samples)
     || !Array.isArray(root.series) || root.series.length > 512) throw new Error('invalid_concurrency_contract');
+  const samples = new Map<string, ObjectValue>();
+  if (Array.isArray(root.samples)) {
+    if (root.samples.length > 4_096) throw new Error('invalid_sample_budget');
+    for (const raw of root.samples) {
+      const sample = object(raw);
+      if (sample && sample.tenant_external_id === tenant && identifier(sample.sample_id)
+        && sample.source === 'request_owner' && sample.lease_state === 'live' && sample.egress_state === 'unfinished_attempt') {
+        samples.set(sample.sample_id, sample);
+      }
+    }
+  }
+  const endpointBindings = new Map<string, string>();
   const series: ConcurrencySeries[] = [];
   const keys = new Set<string>();
   for (const raw of root.series) {
@@ -56,7 +84,20 @@ export function decodeConcurrency(value: unknown, tenant: string, now: number): 
     const key = JSON.stringify([s.dimension, s.identity, s.measurement_basis]);
     if (keys.has(key)) throw new Error('duplicate_concurrency_series');
     keys.add(key);
-    series.push({ tenant_external_id: tenant, dimension: s.dimension, identity: s.identity,
+    let endpointKey: string | null = null;
+    if (s.dimension === 'network_proxy') {
+      for (const id of s.sample_ids as string[]) {
+        const sampleKey = proxyEndpointKey(samples.get(id)?.selected_egress);
+        if (sampleKey && endpointKey !== null && sampleKey !== endpointKey) throw new Error('ambiguous_proxy_series_binding');
+        if (sampleKey) endpointKey = sampleKey;
+      }
+      if (endpointKey !== null) {
+        const previous = endpointBindings.get(endpointKey);
+        if (previous && previous !== s.identity) throw new Error('conflicting_proxy_series_binding');
+        endpointBindings.set(endpointKey, s.identity);
+      }
+    }
+    series.push({ ...(endpointKey === null ? {} : { proxyEndpointKey: endpointKey }), tenant_external_id: tenant, dimension: s.dimension, identity: s.identity,
       measurement_basis: s.measurement_basis, current: s.current, sampled_peak: s.sampled_peak, points,
       sample_ids: s.sample_ids as string[] });
   }
@@ -70,7 +111,7 @@ export function decodeConcurrency(value: unknown, tenant: string, now: number): 
 export interface RequestOutcome {
   id: string; createdAt: number; endedAt: number; account: string; model: string; upstreamModel: string | null;
   protocol: string; route: string | null; success: boolean; latencyMs: number | null;
-  generationMs: number | null; inputTokens: number | null; outputTokens: number | null; usageBasis: string | null;
+  proxyEndpointKey?: string; generationMs: number | null; inputTokens: number | null; outputTokens: number | null; usageBasis: string | null;
 }
 export function decodeOutcome(value: unknown): RequestOutcome | null {
   const r = object(value);
@@ -79,7 +120,8 @@ export function decodeOutcome(value: unknown): RequestOutcome | null {
   if (!r || !identifier(r.request_id) || !identifier(r.upstream_account_id) || !identifier(r.model) || !identifier(r.protocol)
     || !count(r.created_at) || !count(endedAt) || endedAt < r.created_at
     || !['succeeded', 'failed', 'cancelled'].includes(String(r.lifecycle_state))) return null;
-  return { id: r.request_id, account: r.upstream_account_id, createdAt: r.created_at, endedAt,
+  const endpointKey = proxyEndpointKey(object(r.egress)?.selected);
+  return { ...(endpointKey === null ? {} : { proxyEndpointKey: endpointKey }), id: r.request_id, account: r.upstream_account_id, createdAt: r.created_at, endedAt,
     model: r.model, upstreamModel: identifier(r.upstream_model) ? r.upstream_model : null, protocol: r.protocol,
     route: identifier(r.route_id) ? r.route_id : null, success: r.lifecycle_state === 'succeeded',
     latencyMs: count(r.duration_ms) ? r.duration_ms : null,
@@ -104,7 +146,7 @@ export function evidencePolicy(input: unknown = {}): EvidencePolicy {
   if (!config || Object.keys(config).some((key) => !Object.hasOwn(DEFAULT_EVIDENCE_POLICY, key))) throw new Error('invalid_evidence_policy');
   const p = { ...DEFAULT_EVIDENCE_POLICY, ...config } as EvidencePolicy;
   if (!numeric(p.confidenceLevel) || p.confidenceLevel < 0.8 || p.confidenceLevel >= 1
-    || !numeric(p.maxSuccessRateError) || p.maxSuccessRateError <= 0 || p.maxSuccessRateError > 0.25
+    || !numeric(p.maxSuccessRateError) || p.maxSuccessRateError < 0.001 || p.maxSuccessRateError > 0.25
     || !count(p.minObservationMs) || p.minObservationMs < 1_000 || p.minObservationMs > 900_000
     || !numeric(p.maxLatencyRelativeError) || p.maxLatencyRelativeError <= 0 || p.maxLatencyRelativeError > 1
     || !numeric(p.maxTpsRelativeError) || p.maxTpsRelativeError <= 0 || p.maxTpsRelativeError > 1
@@ -157,6 +199,9 @@ export interface SeriesAdvice {
   current: number | null; sampled_peak: number; points: Point[];
   trend: { direction: 'rising' | 'falling' | 'flat' | 'insufficient'; delta: number | null; from: number | null; to: number | null };
   buckets: AdviceBucket[];
+  sampling: { observedPoints: number; matchedOutcomes: number; targetSamplesPerBucket: number;
+    largestBucketSamples: number; remainingSamplesInBestBucket: number; sampleProgressInBestBucket: number;
+    windowProgressInBestBucket: number; blockers: string[] };
   coverage: { terminalRequests: number; matchedRequests: number; excluded: Record<string, number> };
   status: 'observing' | 'inconclusive' | 'manual_review';
   recommendation: null | { kind: 'observed_range_for_manual_review'; concurrencyRange: { from: number; to: number };
@@ -169,7 +214,7 @@ export interface AdviceSnapshot {
     samples_truncated: boolean; metadata_gaps: ConcurrencyObservation['metadata_gaps'] | null };
   uncertainty: { method: string; confidence_level: number; simultaneous_metric_intervals: number; assumptions: string[] };
   experiment: { enabled: false; state: 'disabled'; reason: string };
-  limitations: string[]; collection: { last_success_at: number | null; last_error_at: number | null; state: string };
+  limitations: string[]; collection: { last_success_at: number | null; last_error_at: number | null; state: string; request_records_seen: number; terminal_outcomes_accepted: number; terminal_outcomes_rejected: number };
   series: SeriesAdvice[];
 }
 
@@ -188,9 +233,12 @@ export function computeAdvice(observation: ConcurrencyObservation, requests: rea
       if (s.measurement_basis !== 'request_owner_live_lease' && s.measurement_basis !== 'live_owner_with_unfinished_egress_attempt') {
         exclude('generation_state_is_not_request_concurrency'); continue;
       }
-      // Core only exposes bounded attribution examples, not a stable per-outcome proxy identity.
-      // Historical request endpoints must not be guessed from configured proxy membership.
-      if (s.dimension === 'network_proxy') { exclude('missing_complete_proxy_outcome_attribution'); continue; }
+      // A bounded attribution example binds an endpoint to a series identity; all
+      // paged final outcomes for that endpoint are then eligible, not just the example IDs.
+      if (s.dimension === 'network_proxy') {
+        if (!s.proxyEndpointKey || !r.proxyEndpointKey) { exclude('missing_complete_proxy_outcome_attribution'); continue; }
+        if (s.proxyEndpointKey !== r.proxyEndpointKey) { terminalRequests--; continue; }
+      }
       const points = s.points.filter((p) => p.observed_at >= r.createdAt && p.observed_at <= r.endedAt);
       if (points.length < 2 || points[0]!.observed_at - r.createdAt > observation.sample_interval_ms
         || r.endedAt - points[points.length - 1]!.observed_at > observation.sample_interval_ms
@@ -236,6 +284,7 @@ export function computeAdvice(observation: ConcurrencyObservation, requests: rea
         || b.cohort.upstreamModel === null) blockers.push('incomplete_comparability_metadata');
       if (observation.stale || observation.observed_at === null || now - observation.observed_at > observation.sample_interval_ms * 2) blockers.push('stale_observation');
       if (requestsTruncated || observation.samples_truncated) blockers.push('truncated_source');
+      if (s.dimension === 'network_proxy' && requests.some((r) => !r.proxyEndpointKey)) blockers.push('missing_proxy_outcome_metadata_in_window');
       return { cohort: b.cohort, concurrency: { from: b.from, to: b.to,
         observedMin: Math.min(...b.rows.map((r) => r.concurrency)), observedMax: Math.max(...b.rows.map((r) => r.concurrency)) },
         samples: n, metricCohortSamples: b.rows.length, successes, failures: n - successes, observedFrom: from, observedTo: to, observationMs: to - from,
@@ -271,6 +320,13 @@ export function computeAdvice(observation: ConcurrencyObservation, requests: rea
       current: fresh ? s.current : null, sampled_peak: s.sampled_peak, points: s.points,
       trend: { direction: delta === null ? 'insufficient' : delta > 0 ? 'rising' : delta < 0 ? 'falling' : 'flat', delta,
         from: valid[0]?.observed_at ?? null, to: valid[valid.length - 1]?.observed_at ?? null }, buckets,
+      sampling: { observedPoints: valid.length, matchedOutcomes: matchedRequests, targetSamplesPerBucket: target,
+        largestBucketSamples: Math.max(0, ...buckets.map((b) => b.samples)),
+        remainingSamplesInBestBucket: Math.max(0, target - Math.max(0, ...buckets.map((b) => b.samples))),
+        sampleProgressInBestBucket: Math.min(1, Math.max(0, ...buckets.map((b) => b.samples)) / target),
+        windowProgressInBestBucket: Math.max(0, ...buckets.map((b) => b.evidence.windowProgress)),
+        blockers: buckets.length ? [...new Set(buckets.flatMap((b) => b.evidence.blockers))]
+          : [s.dimension === 'network_proxy' ? 'missing_complete_proxy_outcome_attribution' : 'no_comparable_terminal_outcomes'] },
       coverage: { terminalRequests, matchedRequests, excluded }, recommendation,
       status: recommendation ? 'manual_review' : buckets.some((b) => b.evidence.sufficient) ? 'inconclusive' : 'observing' };
   });
@@ -285,7 +341,8 @@ export function computeAdvice(observation: ConcurrencyObservation, requests: rea
     experiment: { enabled: false, state: 'disabled', reason: 'no_isolated_budgeted_experiment_executor_in_current_host_contract' },
     limitations: ['sampled_owner_concurrency_is_not_wire_concurrency_or_a_limit', 'short_requests_and_incomplete_lifetimes_are_excluded_selection_bias',
       'streaming_retry_transport_revision_and_prompt_mix_are_not_controlled', 'output_token_strata_are_descriptive_post_outcome_groups', 'success_denominator_is_all_account_model_protocol_outcomes_in_concurrency_bucket',
-      'proxy_outcome_identity_missing_no_proxy_recommendation', 'success_is_terminal_lifecycle_not_lease_disappearance',
+      'proxy_identity_requires_actual_endpoint_binding_and_final_egress_metadata', 'final_account_and_proxy_assignment_are_not_attempt_history', 'success_is_terminal_lifecycle_not_lease_disappearance',
       'generation_tps_uses_only_provider_reported_output_tokens_and_generation_duration_ms', 'process_local_15_minute_history_and_sampled_peak_lower_bound'],
-    collection: { last_success_at: now, last_error_at: null, state: 'ok' }, series };
+    collection: { last_success_at: now, last_error_at: null, state: 'ok', request_records_seen: requests.length,
+      terminal_outcomes_accepted: requests.length, terminal_outcomes_rejected: 0 }, series };
 }
