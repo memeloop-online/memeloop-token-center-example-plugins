@@ -171,7 +171,10 @@ export class ConcurrencyAdviceService {
       this.state = 'collection_failed';
     } finally {
       this.controller = undefined;
-      if (this.observation) this.snapshot = computeAdvice(this.observation, this.requests, this.policy, this.now(), this.requestsTruncated);
+      if (this.observation) {
+        try { this.snapshot = computeAdvice(this.observation, this.requests, this.policy, this.now(), this.requestsTruncated); }
+        catch { this.lastError = this.now(); this.state = 'collection_failed'; this.snapshot = undefined; }
+      }
     }
   }
 
@@ -180,13 +183,13 @@ export class ConcurrencyAdviceService {
     const observation = this.observation ?? { contract_version: 'upstream_concurrency_v1', observed_at: null, stale: true,
       sample_interval_ms: 5_000, retention_ms: 900_000, samples_truncated: false,
       metadata_gaps: { missing_account_samples: 0, missing_egress_samples: 0, invalid_egress_samples: 0 }, series: [] };
-    const cached = this.snapshot ?? computeAdvice(observation, [], this.policy, now);
+    const cached = this.snapshot ?? computeAdvice({ ...observation, series: [] }, [], this.policy, now);
     // Statistical work runs in collect(). HTTP reads only project freshness onto its cache.
     const snapshot: AdviceSnapshot = { ...cached, generated_at: now, series: cached.series.map((s) => ({ ...s,
       trend: { ...s.trend }, sampling: { ...s.sampling, blockers: [...s.sampling.blockers] },
       buckets: s.buckets.map((b) => ({ ...b, evidence: { ...b.evidence, blockers: [...b.evidence.blockers] } })) })) };
-    const concurrencyStale = observation.stale || observation.observed_at === null
-      || now - observation.observed_at > observation.sample_interval_ms * 2;
+    const concurrencyStale = cached.stale || cached.observed_at === null
+      || now - cached.observed_at > observation.sample_interval_ms * 2;
     if (concurrencyStale) {
       snapshot.stale = true;
       for (const s of snapshot.series) {

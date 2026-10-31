@@ -262,11 +262,18 @@ export function computeAdvice(observation: ConcurrencyObservation, requests: rea
   const alpha = (1 - policy.confidenceLevel) / intervals;
   const target = Math.ceil(Math.log(2 / alpha) / (2 * policy.maxSuccessRateError ** 2));
   const series = work.map(({ s, buckets: rawBuckets, excluded, terminalRequests, matchedRequests }): SeriesAdvice => {
+    const successGroups = new Map<string, BucketWork['rows']>();
+    const successKey = (b: BucketWork) => JSON.stringify([b.from, b.cohort.account, b.cohort.model, b.cohort.protocol]);
+    for (const b of rawBuckets) {
+      const key = successKey(b);
+      const rows = successGroups.get(key);
+      if (rows) rows.push(...b.rows);
+      else successGroups.set(key, [...b.rows]);
+    }
     const buckets = rawBuckets.map((b): AdviceBucket => {
       // Success denominator never conditions on observed usage/output length. Otherwise
       // missing usage on failures would silently turn a failing bucket into 100% success.
-      const denominator = rawBuckets.filter((other) => other.from === b.from && other.cohort.account === b.cohort.account
-        && other.cohort.model === b.cohort.model && other.cohort.protocol === b.cohort.protocol).flatMap((other) => other.rows);
+      const denominator = successGroups.get(successKey(b))!;
       const n = denominator.length;
       const successes = denominator.filter(({ r }) => r.success).length;
       const radius = Math.sqrt(Math.log(2 / alpha) / (2 * n));
@@ -294,21 +301,28 @@ export function computeAdvice(observation: ConcurrencyObservation, requests: rea
           sampleProgress: Math.min(1, n / target), windowProgress: Math.min(1, (to - from) / policy.minObservationMs), successRateError: radius } };
     }).sort((a, b) => JSON.stringify(a.cohort).localeCompare(JSON.stringify(b.cohort)) || a.concurrency.from - b.concurrency.from);
     let recommendation: SeriesAdvice['recommendation'] = null;
-    for (const baseline of buckets) {
-      for (const candidate of buckets) {
-        if (baseline === candidate || !baseline.evidence.sufficient || !candidate.evidence.sufficient
-          || JSON.stringify(baseline.cohort) !== JSON.stringify(candidate.cohort)
-          || Math.min(baseline.observedTo, candidate.observedTo) - Math.max(baseline.observedFrom, candidate.observedFrom) < policy.minObservationMs) continue;
-        if (candidate.successRate.lower! < baseline.successRate.upper! - policy.successNonInferiorityMargin
-          || candidate.latencyMs.upper! > baseline.latencyMs.lower! || candidate.generationTps.lower! < baseline.generationTps.upper!
-          || (candidate.latencyMs.upper === baseline.latencyMs.lower && candidate.generationTps.lower === baseline.generationTps.upper)) continue;
-        recommendation = { kind: 'observed_range_for_manual_review', concurrencyRange: {
-          from: candidate.concurrency.observedMin, to: candidate.concurrency.observedMax }, cohort: candidate.cohort,
-          baselineRange: { from: baseline.concurrency.observedMin, to: baseline.concurrency.observedMax },
-          reason: 'comparable_observed_intervals_support_success_noninferiority_and_latency_tps_dominance' };
-        break;
+    const comparable = new Map<string, AdviceBucket[]>();
+    for (const b of buckets) {
+      if (!b.evidence.sufficient) continue;
+      const key = JSON.stringify(b.cohort);
+      const group = comparable.get(key);
+      if (group) group.push(b); else comparable.set(key, [b]);
+    }
+    comparison: for (const group of comparable.values()) {
+      for (const baseline of group) {
+        for (const candidate of group) {
+          if (baseline === candidate
+            || Math.min(baseline.observedTo, candidate.observedTo) - Math.max(baseline.observedFrom, candidate.observedFrom) < policy.minObservationMs) continue;
+          if (candidate.successRate.lower! < baseline.successRate.upper! - policy.successNonInferiorityMargin
+            || candidate.latencyMs.upper! > baseline.latencyMs.lower! || candidate.generationTps.lower! < baseline.generationTps.upper!
+            || (candidate.latencyMs.upper === baseline.latencyMs.lower && candidate.generationTps.lower === baseline.generationTps.upper)) continue;
+          recommendation = { kind: 'observed_range_for_manual_review', concurrencyRange: {
+            from: candidate.concurrency.observedMin, to: candidate.concurrency.observedMax }, cohort: candidate.cohort,
+            baselineRange: { from: baseline.concurrency.observedMin, to: baseline.concurrency.observedMax },
+            reason: 'comparable_observed_intervals_support_success_noninferiority_and_latency_tps_dominance' };
+          break comparison;
+        }
       }
-      if (recommendation) break;
     }
     const fresh = !observation.stale && observation.observed_at !== null && now - observation.observed_at <= observation.sample_interval_ms * 2;
     const valid = s.points.filter((p) => !p.truncated);

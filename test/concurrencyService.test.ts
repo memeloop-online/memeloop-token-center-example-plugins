@@ -129,7 +129,12 @@ describe('background evidence integrity', () => {
   it('retains a verified proxy binding after its example request completes', async () => {
     let complete = false;
     const collector = service(async (input) => {
-      if (!String(input).includes('upstream-concurrency')) return Response.json({ requests: [], next_cursor: null });
+      if (!String(input).includes('upstream-concurrency')) return Response.json({ requests: complete ? [{
+        request_id: 'completed-outcome-not-in-example-ids', upstream_account_id: 'account-a', created_at: now - 10_000,
+        completed_at: now, lifecycle_state: 'succeeded', model: 'model-a', upstream_model: 'model-a', protocol: 'openai_responses',
+        route_id: 'route-a', duration_ms: 10_000, generation_duration_ms: 8_000, input_tokens: 64, output_tokens: 32,
+        usage_basis: 'provider_reported', egress: { selected: { kind: 'proxy', scheme: 'http', host: 'example.invalid', port: 8080 } },
+      }] : [], next_cursor: null });
       const raw = coreSnapshot();
       return Response.json({ ...raw, series: [{ ...raw.series[0], dimension: 'network_proxy', identity: 'proxy-identity',
         measurement_basis: 'live_owner_with_unfinished_egress_attempt', current: complete ? 0 : 2,
@@ -140,7 +145,7 @@ describe('background evidence integrity', () => {
     await collector.refresh();
     complete = true;
     await collector.refresh();
-    expect(collector.read().series[0]).toMatchObject({ identity: 'proxy-identity', current: 0 });
+    expect(collector.read().series[0]).toMatchObject({ identity: 'proxy-identity', current: 0, coverage: { matchedRequests: 1 } });
     expect(JSON.stringify(collector.read())).not.toContain('proxyEndpointKey');
   });
 
