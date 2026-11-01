@@ -10,11 +10,24 @@
       "schema": {
         "type": "object",
         "title": "Codex 手动重置次数到期前自动使用",
-        "description": "固定在可用手动重置次数到期前 10 分钟内申请使用一次。宿主必须单独授权并确认次数仍可用；不按余额消耗或配额窗口重置时间触发。",
+        "description": "为已开启的 Codex 账号，在手动重置次数到期前 10 分钟自动使用一次。",
         "additionalProperties": false,
         "properties": {}
       },
       "default": {}
-    }
+    },
+    "operator_ui": [
+      {
+        "id": "codex-expiring-reset",
+        "slot": "operator.sidebar.tab",
+        "category": {"id": "automation", "label": "自动化"},
+        "route": "codex-expiring-reset",
+        "label": "Codex 到期重置",
+        "icon": "activity",
+        "renderer": "component_v1",
+        "module_entry": "ui/codex-expiring-reset.mjs",
+        "component_id": "workspace"
+      }
+    ]
   }
 }

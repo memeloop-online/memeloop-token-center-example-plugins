@@ -25,6 +25,9 @@ jobs:
           toolchain: 1.95.0
           components: rustfmt
           targets: wasm32-unknown-unknown
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.18.0
       - name: Format, test and build pure planner
         run: |
           cargo fmt --manifest-path plugin-sources/codex-expiring-reset/Cargo.toml -- --check
@@ -46,9 +49,25 @@ jobs:
           if grep -Eq '^[[:space:]]*import ' "$RUNNER_TEMP/planner.wit"; then exit 1; fi
           grep -F 'memeloop:background-actions/planner@0.1.0' "$RUNNER_TEMP/planner.wit"
           cp plugin-sources/codex-expiring-reset/plugin.json plugin-sources/codex-expiring-reset/README.md LICENSE dist/codex-expiring-reset/
+          mkdir -p dist/codex-expiring-reset/ui
+          cp plugin-sources/codex-expiring-reset/ui/codex-expiring-reset.mjs dist/codex-expiring-reset/ui/
       - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
         with:
           name: codex-expiring-reset-review-${{ github.sha }}
           path: dist/codex-expiring-reset/
           if-no-files-found: error
+          retention-days: 90
+      - name: Install pinned UI and browser dependencies in CI
+        run: |
+          npm install --no-save --package-lock=false react@19.2.8 react-dom@19.2.8 @fluentui/react-components@9.74.7 playwright@1.62.1 esbuild@0.25.12
+          npx playwright install --with-deps chromium
+      - name: Review packaged UI in Chromium
+        run: node plugin-sources/codex-expiring-reset/ui/browser-review.mjs
+      - name: Preserve browser review evidence
+        if: always()
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+        with:
+          name: codex-expiring-reset-browser-${{ github.sha }}
+          path: dist/codex-expiring-reset-browser/
+          if-no-files-found: warn
           retention-days: 90
