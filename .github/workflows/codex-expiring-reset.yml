@@ -43,8 +43,8 @@ jobs:
           wasm-tools component new plugin-sources/codex-expiring-reset/target/wasm32-unknown-unknown/release/mtc_codex_expiring_reset.wasm -o dist/codex-expiring-reset/plugin.wasm
           wasm-tools validate --features component-model dist/codex-expiring-reset/plugin.wasm
           wasm-tools component wit dist/codex-expiring-reset/plugin.wasm > "$RUNNER_TEMP/planner.wit"
-          if rg '^\s*import ' "$RUNNER_TEMP/planner.wit"; then exit 1; fi
-          rg 'memeloop:background-actions/planner@0.1.0' "$RUNNER_TEMP/planner.wit"
+          if grep -Eq '^[[:space:]]*import ' "$RUNNER_TEMP/planner.wit"; then exit 1; fi
+          grep -F 'memeloop:background-actions/planner@0.1.0' "$RUNNER_TEMP/planner.wit"
           cp plugin-sources/codex-expiring-reset/plugin.json plugin-sources/codex-expiring-reset/README.md LICENSE dist/codex-expiring-reset/
       - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
         with:
