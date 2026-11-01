@@ -246,7 +246,7 @@ export function activateOperatorUi({ React, Fluent, defineOperatorUiPackage }) {
               }, filtered.map(value => h(Fluent.Option, { key: value.id, value: value.id, text: value.name }, value.name)),
               filtered.length === 0 && h(Fluent.Option, { disabled: true, value: '__empty' }, '没有匹配的账号'))),
             account ? h(AccountDetails, { key: `${tenant}:${account.id}`, account, api, tenant, locale })
-              : scopedAccounts.length > 0 && h(Empty, { title: '选择一个账号查看设置', description: '不会自动为任何账号开启授权。' }))));
+              : scopedAccounts.length > 0 && h(Empty, { title: '选择一个账号查看设置', description: '选择后可查看手动重置次数并开启自动使用。' })));
   }
   return defineOperatorUiPackage({
     apiVersion: 'operator-ui-package-v1',
