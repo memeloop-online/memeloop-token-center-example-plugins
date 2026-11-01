@@ -127,6 +127,7 @@ export function activateOperatorUi({ React, Fluent, defineOperatorUiPackage }) {
     const enabled = grant?.enabled === true;
     const operation = data?.operation;
     const result = operation?.state ?? grant?.last_result;
+    const blocked = grant?.last_result === 'blocked';
     const uncertain = ['unknown', 'submitted'].includes(result) && !operation?.settled_at;
     const needsVerification = uncertain || (result === 'accepted' && !operation?.settled_at);
     const summary = creditSummary(quota, now);
@@ -134,8 +135,8 @@ export function activateOperatorUi({ React, Fluent, defineOperatorUiPackage }) {
     const expiry = fresh && summary.reliable ? summary.expiry : null;
     const date = value => Number.isFinite(value) ? new Date(value).toLocaleString(locale || 'zh-CN') : '暂未获取';
     const outcome = uncertain ? '需要核实'
-      : result === 'accepted' ? '已使用一次'
-        : result === 'blocked' ? '已暂停，等待检查'
+      : blocked ? '已暂停，等待检查'
+        : result === 'accepted' ? '已使用一次'
           : operation?.settled_at ? '已核实' : '等待';
     async function toggle() {
       if (writing.current || !data?.can_write || (needsVerification && !enabled)) return;
@@ -181,7 +182,7 @@ export function activateOperatorUi({ React, Fluent, defineOperatorUiPackage }) {
       h('div', { style: styles.metrics },
         h(Metric, { label: '可用手动重置次数', value: fresh && summary.count !== null ? `${summary.count} 次` : '暂未获取' }),
         h(Metric, { label: '最近一次到期', value: expiry ? date(expiry) : fresh && summary.count === 0 ? '暂无可用次数' : '暂未获取' }),
-        h(Metric, { label: '预计开始执行', value: !data ? '待确认授权' : !enabled ? '未开启' : needsVerification ? '等待核实' : expiry ? date(expiry - 600_000) : '等待有效到期时间', note: '在到期前 10 分钟内检查并执行' }),
+        h(Metric, { label: '预计开始执行', value: !data ? '待确认授权' : !enabled ? '未开启' : needsVerification ? '等待核实' : blocked ? '等待检查' : expiry ? date(expiry - 600_000) : '等待有效到期时间', note: '在到期前 10 分钟内检查并执行' }),
         h(Metric, { label: '最后结果', value: data ? outcome : '暂未获取', note: grant?.last_attempt_at ? `最近检查 ${date(grant.last_attempt_at)}` : '尚无自动执行检查记录' })),
       h(Fluent.Card, { appearance: 'outline', style: { padding: 24 } },
         h('div', { style: styles.row },
