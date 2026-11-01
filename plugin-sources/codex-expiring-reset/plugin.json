@@ -1,0 +1,20 @@
+{
+  "id": "mtc-codex-expiring-reset",
+  "version": "1.0.0",
+  "wit_version": "0.2.0",
+  "wasm": "plugin.wasm",
+  "capabilities": [{"kind": "quota_reset_credit"}],
+  "contributions": {
+    "background_actions": {"interval_seconds": 60},
+    "configuration": {
+      "schema": {
+        "type": "object",
+        "title": "Codex 手动重置次数到期前自动使用",
+        "description": "固定在可用手动重置次数到期前 10 分钟内申请使用一次。宿主必须单独授权并确认次数仍可用；不按余额消耗或配额窗口重置时间触发。",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "default": {}
+    }
+  }
+}
