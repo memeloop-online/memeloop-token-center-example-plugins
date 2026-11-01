@@ -1,5 +1,5 @@
 // All presentation primitives come from the authenticated operator host.
-// No credentials, supplier response text, or account IDs are rendered.
+// Presentation uses account names, scoped summaries and host-provided status.
 export function createPresentation(React, Fluent) {
   const h = React.createElement;
   const styles = {
