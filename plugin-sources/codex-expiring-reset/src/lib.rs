@@ -35,8 +35,7 @@ fn plan(input: Context) -> Result<Option<ResetCreditIntent>, String> {
             return Err("invalid credit inventory".into());
         }
     }
-    // The host supplies only available credits. Never interpret quota reset_at
-    // or remaining balance as a manual-reset-credit expiry.
+    // The host supplies available manual-reset credits and their exact expiry times.
     let Some(credit) = input
         .credits
         .iter()

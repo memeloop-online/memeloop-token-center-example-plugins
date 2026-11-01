@@ -1,4 +1,4 @@
-// CI-only browser acceptance. Fixture values never ship in the plugin package.
+// CI browser acceptance uses synthetic fixtures in a separate harness.
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { mkdirSync, writeFileSync } from 'node:fs';
