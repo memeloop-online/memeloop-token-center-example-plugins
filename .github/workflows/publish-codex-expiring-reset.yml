@@ -1,0 +1,290 @@
+name: verify and publish signed Codex reset plugin
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/publish-codex-expiring-reset.yml'
+      - 'scripts/codex-reset-publication*.mjs'
+      - 'release/codex-expiring-reset-trust.json'
+      - 'plugin-sources/codex-expiring-reset/**'
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/publish-codex-expiring-reset.yml'
+      - 'scripts/codex-reset-publication*.mjs'
+      - 'release/codex-expiring-reset-trust.json'
+      - 'plugin-sources/codex-expiring-reset/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codex-reset-publication-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    outputs:
+      trust_status: ${{ steps.trust.outputs.status }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.18.0
+      - name: Verify recursive package, pending-pin and signed-receipt contracts
+        run: node --test scripts/codex-reset-publication-contract.mjs
+      - name: Read reviewed publication status
+        id: trust
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync, appendFileSync } from 'node:fs';
+          const trust = JSON.parse(readFileSync('release/codex-expiring-reset-trust.json', 'utf8'));
+          assert(['pending', 'ready'].includes(trust.status));
+          appendFileSync(process.env.GITHUB_OUTPUT, `status=${trust.status}\n`);
+          NODE
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+        with:
+          toolchain: 1.95.0
+          components: rustfmt
+          targets: wasm32-unknown-unknown
+      - name: Build the exact pure planner
+        run: |
+          cargo fmt --manifest-path plugin-sources/codex-expiring-reset/Cargo.toml -- --check
+          cargo test --locked --manifest-path plugin-sources/codex-expiring-reset/Cargo.toml
+          cargo build --locked --release --target wasm32-unknown-unknown --manifest-path plugin-sources/codex-expiring-reset/Cargo.toml
+      - name: Install checksum-pinned component tools
+        run: |
+          curl --fail --location --retry 3 --max-time 120 https://github.com/bytecodealliance/wasm-tools/releases/download/v1.252.0/wasm-tools-1.252.0-x86_64-linux.tar.gz --output "$RUNNER_TEMP/wasm-tools.tar.gz"
+          echo '097b1181d5b2bc3f2ebc44b4e72edf18308902023f1f1483a1a7dc1268ea988d  '"$RUNNER_TEMP/wasm-tools.tar.gz" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/component-tools"
+          tar -xzf "$RUNNER_TEMP/wasm-tools.tar.gz" -C "$RUNNER_TEMP/component-tools" --strip-components=1
+          echo "$RUNNER_TEMP/component-tools" >> "$GITHUB_PATH"
+      - name: Assemble the allowlisted package including nested UI
+        run: |
+          wasm-tools component new plugin-sources/codex-expiring-reset/target/wasm32-unknown-unknown/release/mtc_codex_expiring_reset.wasm -o plugin-sources/codex-expiring-reset/target/wasm32-unknown-unknown/release/mtc_codex_expiring_reset.component.wasm
+          wasm-tools validate --features component-model plugin-sources/codex-expiring-reset/target/wasm32-unknown-unknown/release/mtc_codex_expiring_reset.component.wasm
+          wasm-tools component wit plugin-sources/codex-expiring-reset/target/wasm32-unknown-unknown/release/mtc_codex_expiring_reset.component.wasm > "$RUNNER_TEMP/planner.wit"
+          if grep -Eq '^[[:space:]]*import ' "$RUNNER_TEMP/planner.wit"; then exit 1; fi
+          grep -F 'memeloop:background-actions/planner@0.1.0' "$RUNNER_TEMP/planner.wit"
+          node scripts/codex-reset-publication.mjs assemble
+      - name: Install pinned UI dependencies in CI
+        run: |
+          npm install --no-save --package-lock=false react@19.2.8 react-dom@19.2.8 @fluentui/react-components@9.74.7 playwright@1.62.1 esbuild@0.25.12
+          npx playwright install --with-deps chromium
+      - name: Review the assembled UI in real Chromium
+        run: node plugin-sources/codex-expiring-reset/ui/browser-review.mjs
+      - name: Retain exact candidate and hashes
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+        with:
+          name: codex-reset-publication-candidate-${{ github.sha }}
+          path: |
+            dist/codex-expiring-reset/
+            dist/codex-expiring-reset-build.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Retain real browser evidence
+        if: always()
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+        with:
+          name: codex-reset-publication-browser-${{ github.sha }}
+          path: dist/codex-expiring-reset-browser/
+          if-no-files-found: warn
+          retention-days: 90
+
+  official-host:
+    needs: candidate
+    if: needs.candidate.outputs.trust_status == 'ready'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    env:
+      CARGO_BUILD_JOBS: 2
+      CARGO_PROFILE_TEST_DEBUG: 0
+      CARGO_PROFILE_DEV_DEBUG: 0
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: codex_reset_publication
+          POSTGRES_USER: token_center
+          POSTGRES_PASSWORD: token_center
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U token_center -d codex_reset_publication"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.18.0
+      - name: Verify reviewed official release source and artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node scripts/codex-reset-publication.mjs resolve-trust
+      - name: Fetch and match official immutable image metadata
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh run download "$OFFICIAL_HOST_RUN_ID" --repo memeloop-online/memeloop-token-center --name "ghcr-release-$HOST_SOURCE_REVISION" --dir "$RUNNER_TEMP/official-host-release"
+          node scripts/codex-reset-publication.mjs verify-official-images
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: memeloop-online/memeloop-token-center
+          ref: ${{ env.HOST_SOURCE_REVISION }}
+          path: .codex-host
+          persist-credentials: false
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: memeloop-online/memeloop-token-center-example-plugins
+          ref: 21489f4fee6266de99fe7e258349468ce77af8bd
+          path: .codex-host/.plugin-examples
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: codex-reset-publication-candidate-${{ github.sha }}
+          path: dist
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+        with:
+          toolchain: 1.95.0
+      - name: Require the exact ABI and both real database worker contracts
+        env:
+          MTC_CODEX_EXPIRING_RESET_PACKAGE: ${{ github.workspace }}/dist/codex-expiring-reset
+          MTC_TEST_POSTGRES_URL: postgres://token_center:token_center@127.0.0.1:5432/codex_reset_publication
+        run: |
+          test "$(git -C .codex-host rev-parse HEAD)" = "$HOST_SOURCE_REVISION"
+          cmp plugin-sources/codex-expiring-reset/wit/background-actions.wit .codex-host/wit/background-actions.wit
+          mv .codex-host "$RUNNER_TEMP/codex-publication-host"
+          cd "$RUNNER_TEMP/codex-publication-host"
+          cargo test --locked --all-features --lib codex_background_action_real_component_worker_contract -- --ignored --list > "$RUNNER_TEMP/codex-tests.txt"
+          grep -F 'sqlite_codex_background_action_real_component_worker_contract: test' "$RUNNER_TEMP/codex-tests.txt"
+          grep -F 'postgres_codex_background_action_real_component_worker_contract: test' "$RUNNER_TEMP/codex-tests.txt"
+          cargo test --locked --all-features --lib background_action_recovery_and_authority_fences -- --nocapture
+          cargo test --locked --all-features --lib codex_background_action_real_component_worker_contract -- --ignored --nocapture
+
+  publish:
+    needs: [candidate, official-host]
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && github.ref_protected == true && github.repository == 'memeloop-online/memeloop-token-center-example-plugins'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      actions: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.18.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: codex-reset-publication-candidate-${{ github.sha }}
+          path: dist
+      - name: Reverify official evidence and select the exact candidate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node scripts/codex-reset-publication.mjs resolve-trust
+      - name: Match official image metadata and select candidate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh run download "$OFFICIAL_HOST_RUN_ID" --repo memeloop-online/memeloop-token-center --name "ghcr-release-$HOST_SOURCE_REVISION" --dir "$RUNNER_TEMP/official-host-release"
+          node scripts/codex-reset-publication.mjs verify-official-images
+          node scripts/codex-reset-publication.mjs select
+      - uses: oras-project/setup-oras@ccb71166b124a8452d1b72c4476398a909ed4d63
+        with:
+          version: 1.3.0
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Load the reviewed official installer and patched Cosign
+        run: |
+          test -n "$ACTIONS_ID_TOKEN_REQUEST_TOKEN"
+          test -n "$ACTIONS_ID_TOKEN_REQUEST_URL"
+          docker pull "$INSTALLER_SOURCE@$INSTALLER_DIGEST"
+          test "$(docker image inspect "$INSTALLER_SOURCE@$INSTALLER_DIGEST" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$INSTALLER_SOURCE_REVISION"
+          test "$(docker image inspect "$INSTALLER_SOURCE@$INSTALLER_DIGEST" --format '{{index .Config.Labels "io.memeloop.cosign.version"}}')" = "$COSIGN_VERSION"
+          container=$(docker create "$INSTALLER_SOURCE@$INSTALLER_DIGEST")
+          trap 'docker rm "$container" >/dev/null' EXIT
+          mkdir -p "$RUNNER_TEMP/codex-tools"
+          docker cp "$container:/usr/local/bin/cosign" "$RUNNER_TEMP/codex-tools/cosign"
+          chmod 0555 "$RUNNER_TEMP/codex-tools/cosign"
+          test "$("$RUNNER_TEMP/codex-tools/cosign" version --json | node -e 'let s="";process.stdin.on("data",x=>s+=x);process.stdin.on("end",()=>process.stdout.write(JSON.parse(s).gitVersion))')" = "$COSIGN_VERSION"
+          echo "$RUNNER_TEMP/codex-tools" >> "$GITHUB_PATH"
+      - name: Publish fixed OCI layers with the nested UI path
+        working-directory: ${{ runner.temp }}/plugin-package
+        run: |
+          oras push "$PLUGIN_SOURCE:sha-$GITHUB_SHA-run-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            --artifact-type application/vnd.memeloop.token-center.plugin.v1 \
+            --config config.json:application/vnd.memeloop.token-center.plugin.config.v1+json \
+            --annotation "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            --annotation "org.opencontainers.image.revision=$GITHUB_SHA" \
+            plugin.json:application/vnd.memeloop.token-center.plugin.manifest.v1+json \
+            plugin.wasm:application/vnd.wasm.content.layer.v1+wasm \
+            README.md:application/vnd.memeloop.token-center.plugin.asset.v1 \
+            LICENSE:application/vnd.memeloop.token-center.plugin.asset.v1 \
+            ui/codex-expiring-reset.mjs:application/vnd.memeloop.token-center.plugin.asset.v1 \
+            --format json > "$RUNNER_TEMP/plugin-push.json"
+          node -e 'const fs=require("node:fs"),x=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/plugin-push.json"));if(!/^sha256:[0-9a-f]{64}$/.test(x.digest))process.exit(1);fs.appendFileSync(process.env.GITHUB_ENV,`PLUGIN_DIGEST=${x.digest}\n`)'
+      - name: Sign and verify this exact workflow identity
+        run: |
+          cosign sign --yes "$PLUGIN_SOURCE@$PLUGIN_DIGEST"
+          cosign verify --certificate-identity "$SIGNING_IDENTITY" --certificate-oidc-issuer "$SIGNING_ISSUER" "$PLUGIN_SOURCE@$PLUGIN_DIGEST" > "$RUNNER_TEMP/plugin-signature-verification.json"
+          oras manifest fetch "$PLUGIN_SOURCE@$PLUGIN_DIGEST" --output "$RUNNER_TEMP/plugin-oci-manifest.json"
+      - name: Clean-install signed bytes through the official installer
+        env:
+          REGISTRY_USERNAME: ${{ github.actor }}
+          REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/plugin-install" "$RUNNER_TEMP/plugin-registry"
+          umask 077
+          printf '%s' "$REGISTRY_USERNAME" > "$RUNNER_TEMP/plugin-registry/username"
+          printf '%s' "$REGISTRY_PASSWORD" > "$RUNNER_TEMP/plugin-registry/password"
+          sudo chown -R 10001:10001 "$RUNNER_TEMP/plugin-registry" "$RUNNER_TEMP/plugin-install"
+          docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --tmpfs /tmp:rw,nosuid,nodev,size=32m \
+            --mount "type=bind,src=$RUNNER_TEMP/plugin-install,dst=/plugins" \
+            --mount "type=bind,src=$RUNNER_TEMP/plugin-registry,dst=/registry,readonly" \
+            --entrypoint /usr/local/bin/install-plugin-oci "$INSTALLER_SOURCE@$INSTALLER_DIGEST" \
+            "$PLUGIN_SOURCE@$PLUGIN_DIGEST" --plugin-dir /plugins --allowed-source "$PLUGIN_SOURCE" \
+            --cosign-certificate-identity "$SIGNING_IDENTITY" --cosign-certificate-oidc-issuer "$SIGNING_ISSUER" \
+            --registry-username-file /registry/username --registry-password-file /registry/password > "$RUNNER_TEMP/plugin-installation.json"
+          node scripts/codex-reset-publication.mjs verify-release
+      - name: Publish immutable installation descriptor
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/codex-reset-publication.mjs publish-descriptor
+      - name: Preserve signature, receipt, exact files and descriptor evidence
+        if: always()
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+        with:
+          name: codex-reset-signed-release-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/plugin-release.json
+            ${{ runner.temp }}/plugin-push.json
+            ${{ runner.temp }}/plugin-signature-verification.json
+            ${{ runner.temp }}/plugin-oci-manifest.json
+            ${{ runner.temp }}/plugin-installation.json
+            ${{ runner.temp }}/plugin-install/mtc-codex-expiring-reset/.mtc-oci-install.json
+            ${{ runner.temp }}/plugin-package/
+            release/codex-expiring-reset-trust.json
+            dist/codex-expiring-reset-build.json
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 90

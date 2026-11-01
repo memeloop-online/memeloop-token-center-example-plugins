@@ -1,0 +1,17 @@
+{
+  "format_version": 1,
+  "status": "pending",
+  "host_repository": "memeloop-online/memeloop-token-center",
+  "host_source_revision": "",
+  "host_reference": "",
+  "host_verification_run": "",
+  "host_release_artifact_id": 0,
+  "host_release_artifact_digest": "",
+  "installer_repository": "ghcr.io/memeloop-online/memeloop-token-center-plugin-installer",
+  "installer_digest": "",
+  "installer_source_revision": "",
+  "minimum_installer_contract_revision": "",
+  "cosign_version": "",
+  "installer_verification_run": "",
+  "plugin_source": "ghcr.io/memeloop-online/mtc-codex-expiring-reset"
+}
