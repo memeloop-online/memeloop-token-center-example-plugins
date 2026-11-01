@@ -77,6 +77,7 @@ try {
   await choose();
   assert.equal(await page.getByText('2 次', { exact: true }).count(), 1);
   assert.equal(await page.getByRole('switch').isChecked(), false);
+  await page.getByText('开启后，在手动重置次数到期前 10 分钟自动使用一次。', { exact: true }).waitFor();
   assert.equal(await page.evaluate(() => window.requests.some(r => r.method !== 'GET')), false);
   await screenshot('desktop-disabled');
   await page.getByRole('switch').click();
@@ -85,7 +86,7 @@ try {
   assert.deepEqual(await page.evaluate(() => window.requests.find(r => r.method === 'PUT').body), { enabled: true, expected_revision: 0 });
   await screenshot('desktop-enabled');
   await page.getByRole('switch').click();
-  await page.getByText('已关闭授权，系统不会再发起新的自动使用。已发出的请求仍需核实结果。', { exact: true }).waitFor();
+  await page.getByText('已关闭此账号的自动使用授权。', { exact: true }).waitFor();
   assert.equal(await page.getByRole('switch').isChecked(), false);
   assert.deepEqual(await page.evaluate(() => window.requests.filter(r => r.method === 'PUT').at(-1).body), { enabled: false, expected_revision: 1 });
   checks.push('search, explicit opt-in, optimistic revision, opt-out');
@@ -95,11 +96,11 @@ try {
   checks.push('tenant transition clears selection and grant');
   await open('readonly'); await choose();
   assert.equal(await page.getByRole('switch').isDisabled(), true);
-  await page.getByText('当前为只读模式，没有修改自动使用授权的权限。', { exact: true }).waitFor();
+  await page.getByText('当前为只读模式。', { exact: true }).waitFor();
   await screenshot('readonly');
   await open('unknown'); await choose();
   assert.equal(await page.getByRole('switch').isDisabled(), true);
-  await page.getByText('上次使用结果尚不明确，后续自动使用已停止。请查看下方重置记录；核实前不要再次手动使用。', { exact: true }).waitFor();
+  await page.getByText('上次使用结果待核实，自动使用已暂停。请打开上游账号查看重置记录。', { exact: true }).waitFor();
   await page.getByRole('button', { name: '打开上游账号' }).click();
   assert.deepEqual(await page.evaluate(() => window.navigations), [['upstreams']]);
   await screenshot('unknown-result');
@@ -108,11 +109,11 @@ try {
   assert.ok(await page.getByText('已使用一次', { exact: true }).count() > 0);
   await screenshot('accepted-result');
   await open('conflict'); await choose(); await page.getByRole('switch').click();
-  await page.getByText('授权已被其他操作更新。请刷新后再确认，未覆盖现有设置。', { exact: true }).waitFor();
+  await page.getByText('授权已被其他操作更新。请刷新后确认当前设置。', { exact: true }).waitFor();
   assert.equal(await page.getByRole('switch').isDisabled(), true);
   checks.push('409 invalidates stale grant');
   await open('quota-error'); await choose();
-  await page.getByText('手动重置次数信息暂不可确认或已过期。系统会重新检查可用次数和到期时间，当前不展示预计执行时间。', { exact: true }).waitFor();
+  await page.getByText('手动重置次数信息待确认。系统会重新检查可用次数和到期时间。', { exact: true }).waitFor();
   await screenshot('quota-unavailable');
   await open('empty'); await page.getByText('暂无 Codex 账号', { exact: true }).waitFor(); await screenshot('empty');
   await open('error'); await page.getByRole('button', { name: '重试', exact: true }).waitFor(); await screenshot('permission-error');

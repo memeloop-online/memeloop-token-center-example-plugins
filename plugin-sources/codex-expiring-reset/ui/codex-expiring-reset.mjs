@@ -43,9 +43,9 @@ export function createPresentation(React, Fluent) {
 const PLUGIN_ID = 'mtc-codex-expiring-reset';
 const scopePath = (path, tenant) => `${path}?${new URLSearchParams({ tenant_external_id: tenant })}`;
 const errorCopy = (error) => {
-  if ([401, 403].includes(error?.status)) return '没有操作权限，请联系管理员。';
-  if (error?.status === 409) return '授权已被其他操作更新。请刷新后再确认，未覆盖现有设置。';
-  if (error?.status === 404) return '当前版本暂不支持此功能，请联系管理员升级。';
+  if ([401, 403].includes(error?.status)) return '当前账号缺少操作权限，请联系管理员。';
+  if (error?.status === 409) return '授权已被其他操作更新。请刷新后确认当前设置。';
+  if (error?.status === 404) return '升级宿主版本后即可使用此功能，请联系管理员。';
   return '暂时无法读取或保存设置。请刷新核实当前状态后重试。';
 };
 
@@ -151,7 +151,7 @@ export function activateOperatorUi({ React, Fluent, defineOperatorUiPackage }) {
         const checked = validateEnvelope(value, account.id, tenant);
         if (alive.current && generation.current === expectedGeneration) {
           setData(checked);
-          setSaved(checked.grant?.enabled ? '已开启此账号的自动使用授权。' : '已关闭授权，系统不会再发起新的自动使用。已发出的请求仍需核实结果。');
+          setSaved(checked.grant?.enabled ? '已开启此账号的自动使用授权。' : '已关闭此账号的自动使用授权。');
         }
       } catch (reason) {
         if (alive.current && generation.current === expectedGeneration) { setData(null); setError(errorCopy(reason)); }
@@ -171,14 +171,14 @@ export function activateOperatorUi({ React, Fluent, defineOperatorUiPackage }) {
             disabled: loading || saving || !data?.can_write || (!enabled && needsVerification),
             onChange: toggle,
           })),
-        data && !data.can_write && h(Notice, { intent: 'warning' }, '当前为只读模式，没有修改自动使用授权的权限。'),
-        data && !enabled && h(Fluent.Text, { style: styles.subdued }, '关闭时不会发起新的自动使用；现有手动重置次数保持不变。')),
+        data && !data.can_write && h(Notice, { intent: 'warning' }, '当前为只读模式。'),
+        data && !enabled && h(Fluent.Text, { style: styles.subdued }, '开启后，在手动重置次数到期前 10 分钟自动使用一次。')),
       loading && h(Fluent.Spinner, { size: 'small', label: '正在读取授权与手动重置次数…' }),
       error && h(Notice, { intent: 'error' }, error),
       saved && h(Notice, { intent: 'success' }, saved),
-      uncertain && h(Notice, { intent: 'warning' }, '上次使用结果尚不明确，后续自动使用已停止。请查看下方重置记录；核实前不要再次手动使用。'),
+      uncertain && h(Notice, { intent: 'warning' }, '上次使用结果待核实，自动使用已暂停。请打开上游账号查看重置记录。'),
       !uncertain && needsVerification && h(Notice, null, '已使用一次，正在等待结果核实。核实完成后才能继续自动使用。'),
-      (quotaError || (quota && (!summary.reliable || !fresh))) && h(Notice, { intent: 'warning' }, '手动重置次数信息暂不可确认或已过期。系统会重新检查可用次数和到期时间，当前不展示预计执行时间。'),
+      (quotaError || (quota && (!summary.reliable || !fresh))) && h(Notice, { intent: 'warning' }, '手动重置次数信息待确认。系统会重新检查可用次数和到期时间。'),
       h('div', { style: styles.metrics },
         h(Metric, { label: '可用手动重置次数', value: fresh && summary.count !== null ? `${summary.count} 次` : '暂未获取' }),
         h(Metric, { label: '最近一次到期', value: expiry ? date(expiry) : fresh && summary.count === 0 ? '暂无可用次数' : '暂未获取' }),
@@ -192,7 +192,7 @@ export function activateOperatorUi({ React, Fluent, defineOperatorUiPackage }) {
           : !operation ? h(Fluent.Text, { style: styles.subdued }, '暂无重置记录。')
             : h('div', { style: styles.stack },
               h(Fluent.Badge, { appearance: 'tint', color: uncertain ? 'warning' : result === 'accepted' ? 'success' : 'informative', style: { justifySelf: 'start' } }, outcome),
-              h(Fluent.Text, null, operation.settled_at ? `已核实于 ${date(operation.settled_at)}` : '记录尚未完成结果核实。'),
+              h(Fluent.Text, null, operation.settled_at ? `已核实于 ${date(operation.settled_at)}` : '结果核实中。'),
               h(Fluent.Text, { style: styles.subdued }, '可在上游账号中查看重置状态并核实。'))),
       h('div', { style: styles.row },
         h(Fluent.Text, { size: 200, style: styles.subdued }, quota?.observed_at ? `次数读取于 ${date(quota.observed_at)}` : '尚无次数读取时间'),
@@ -233,7 +233,7 @@ export function activateOperatorUi({ React, Fluent, defineOperatorUiPackage }) {
     return h('main', { style: styles.page },
       h(Intro),
       !tenant ? h(Empty, { title: '先选择租户', description: '自动使用授权属于当前租户，请先选择要管理的租户。' })
-        : !supported ? h(Notice, { intent: 'warning' }, '当前版本暂不支持此功能，请联系管理员升级。')
+        : !supported ? h(Notice, { intent: 'warning' }, '升级宿主版本后即可使用此功能，请联系管理员。')
           : h(React.Fragment, null,
             loading && h(Fluent.Spinner, { label: '正在加载 Codex 账号…' }),
             error && h(Notice, { intent: 'error' }, error, ' ', h(Fluent.Button, { size: 'small', onClick: () => setReload(value => value + 1) }, '重试')),
