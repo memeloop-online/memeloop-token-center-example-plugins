@@ -28,6 +28,9 @@ for (const [directory, contribution, defaults] of strategies) {
   assert.deepEqual([...config.schema.required].sort(), Object.keys(defaults).sort());
   assert.equal(config.schema.additionalProperties, false);
   assertLabels(config.schema);
+  if (directory === 'plugin-sources/soonest-reset') assert.deepEqual(config.schema['x-resource-choice'], {
+    source: 'group-quota-windows', bindings: { target_provider: 'provider', target_window_id: 'window_id' }, autoSelectSingle: true,
+  });
   for (const [key, property] of Object.entries(config.schema.properties)) {
     assertLabels(property);
     if (key === 'preferred_account_ids') {

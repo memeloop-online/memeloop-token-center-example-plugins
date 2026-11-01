@@ -24,15 +24,15 @@
             "type": "string",
             "maxLength": 128,
             "title": "Provider driver",
-            "description": "Enter the exact provider driver ID. Leave empty to disable this preference.",
+            "description": "Provider associated with the selected quota window.",
             "x-i18n": {
               "zh-CN": {
                 "title": "提供商驱动",
-                "description": "填写准确的提供商驱动 ID。留空时不启用此优先规则。"
+                "description": "所选额度窗口对应的提供商。"
               },
               "en": {
                 "title": "Provider driver",
-                "description": "Enter the exact provider driver ID. Leave empty to disable this preference."
+                "description": "Provider associated with the selected quota window."
               }
             }
           },
@@ -40,30 +40,38 @@
             "type": "string",
             "maxLength": 512,
             "title": "Quota window",
-            "description": "Enter the exact quota window ID. Leave empty to disable this preference.",
+            "description": "Quota window used to order accounts by reset time.",
             "x-i18n": {
               "zh-CN": {
                 "title": "配额窗口",
-                "description": "填写准确的配额窗口 ID。留空时不启用此优先规则。"
+                "description": "用于按重置时间排列账号的额度窗口。"
               },
               "en": {
                 "title": "Quota window",
-                "description": "Enter the exact quota window ID. Leave empty to disable this preference."
+                "description": "Quota window used to order accounts by reset time."
               }
             }
           }
         },
         "title": "Prefer accounts resetting soonest",
-        "description": "Order eligible accounts by the next reset of the specified provider quota window, keeping other accounts in their existing positions.",
+        "description": "Prefer accounts whose quota resets soonest.",
         "x-i18n": {
           "zh-CN": {
             "title": "优先使用即将重置的账号",
-            "description": "按指定提供商配额窗口的下次重置时间排列符合条件的账号，其余账号保留原位置。"
+            "description": "优先使用额度即将重置的账号"
           },
           "en": {
             "title": "Prefer accounts resetting soonest",
-            "description": "Order eligible accounts by the next reset of the specified provider quota window, keeping other accounts in their existing positions."
+            "description": "Prefer accounts whose quota resets soonest."
           }
+        },
+        "x-resource-choice": {
+          "source": "group-quota-windows",
+          "bindings": {
+            "target_provider": "provider",
+            "target_window_id": "window_id"
+          },
+          "autoSelectSingle": true
         }
       },
       "default": {
