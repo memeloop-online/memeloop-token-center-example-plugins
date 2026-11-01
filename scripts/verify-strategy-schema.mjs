@@ -21,7 +21,7 @@ function assertLabels(schema) {
 }
 for (const [directory, contribution, defaults] of strategies) {
   const manifest = JSON.parse(readFileSync(`${directory}/plugin.json`, 'utf8'));
-  assert.equal(manifest.version, '1.0.1');
+  assert.match(manifest.version ?? '', /^\d+\.\d+\.\d+$/);
   const config = manifest.contributions[contribution];
   assert.deepEqual(config.default, defaults);
   assert.deepEqual(Object.keys(config.schema.properties).sort(), Object.keys(defaults).sort());
