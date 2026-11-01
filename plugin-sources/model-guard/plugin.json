@@ -1,6 +1,6 @@
 {
   "id": "mtc-model-guard",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "wit_version": "0.2.0",
   "wasm": "plugin.wasm",
   "capabilities": [],
@@ -12,18 +12,49 @@
       "schema": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["blocked_models"],
+        "required": [
+          "blocked_models"
+        ],
         "properties": {
           "blocked_models": {
-            "title": "Blocked model IDs (exact, case-sensitive)",
+            "title": "Blocked models",
             "type": "array",
             "maxItems": 128,
             "uniqueItems": true,
-            "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "description": "Enter exact model IDs. Matching is case-sensitive.",
+            "x-i18n": {
+              "zh-CN": {
+                "title": "拦截模型",
+                "description": "填写准确的模型 ID，匹配时区分大小写。"
+              },
+              "en": {
+                "title": "Blocked models",
+                "description": "Enter exact model IDs. Matching is case-sensitive."
+              }
+            }
+          }
+        },
+        "title": "Block selected models",
+        "description": "Reject requests for the model IDs configured below.",
+        "x-i18n": {
+          "zh-CN": {
+            "title": "拦截指定模型",
+            "description": "拒绝请求下方配置的模型 ID。"
+          },
+          "en": {
+            "title": "Block selected models",
+            "description": "Reject requests for the model IDs configured below."
           }
         }
       },
-      "default": { "blocked_models": [] }
+      "default": {
+        "blocked_models": []
+      }
     }
   }
 }

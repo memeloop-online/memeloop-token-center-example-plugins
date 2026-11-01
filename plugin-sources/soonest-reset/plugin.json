@@ -1,9 +1,13 @@
 {
   "id": "mtc-soonest-reset",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "wit_version": "0.2.0",
   "wasm": "plugin.wasm",
-  "capabilities": [{"kind": "group_routing_quota"}],
+  "capabilities": [
+    {
+      "kind": "group_routing_quota"
+    }
+  ],
   "contributions": {
     "group_routing": {
       "version": "group-routing-v1",
@@ -11,13 +15,61 @@
       "schema": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["target_provider", "target_window_id"],
+        "required": [
+          "target_provider",
+          "target_window_id"
+        ],
         "properties": {
-          "target_provider": {"type": "string", "maxLength": 128, "title": "Exact provider driver (empty disables preference)"},
-          "target_window_id": {"type": "string", "maxLength": 512, "title": "Exact quota window ID (empty disables preference)"}
+          "target_provider": {
+            "type": "string",
+            "maxLength": 128,
+            "title": "Provider driver",
+            "description": "Enter the exact provider driver ID. Leave empty to disable this preference.",
+            "x-i18n": {
+              "zh-CN": {
+                "title": "提供商驱动",
+                "description": "填写准确的提供商驱动 ID。留空时不启用此优先规则。"
+              },
+              "en": {
+                "title": "Provider driver",
+                "description": "Enter the exact provider driver ID. Leave empty to disable this preference."
+              }
+            }
+          },
+          "target_window_id": {
+            "type": "string",
+            "maxLength": 512,
+            "title": "Quota window",
+            "description": "Enter the exact quota window ID. Leave empty to disable this preference.",
+            "x-i18n": {
+              "zh-CN": {
+                "title": "配额窗口",
+                "description": "填写准确的配额窗口 ID。留空时不启用此优先规则。"
+              },
+              "en": {
+                "title": "Quota window",
+                "description": "Enter the exact quota window ID. Leave empty to disable this preference."
+              }
+            }
+          }
+        },
+        "title": "Prefer accounts resetting soonest",
+        "description": "Order eligible accounts by the next reset of the specified provider quota window, keeping other accounts in their existing positions.",
+        "x-i18n": {
+          "zh-CN": {
+            "title": "优先使用即将重置的账号",
+            "description": "按指定提供商配额窗口的下次重置时间排列符合条件的账号，其余账号保留原位置。"
+          },
+          "en": {
+            "title": "Prefer accounts resetting soonest",
+            "description": "Order eligible accounts by the next reset of the specified provider quota window, keeping other accounts in their existing positions."
+          }
         }
       },
-      "default": {"target_provider": "", "target_window_id": ""}
+      "default": {
+        "target_provider": "",
+        "target_window_id": ""
+      }
     }
   }
 }
