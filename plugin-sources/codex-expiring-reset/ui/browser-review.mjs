@@ -55,15 +55,18 @@ const server = createServer((request, response) => {
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 let browser;
+let page;
+const errors = [];
 const checks = [];
 try {
   browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce' });
-  const errors = [];
+  page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce' });
   page.on('pageerror', error => errors.push(error.message));
+  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
   const url = `http://127.0.0.1:${server.address().port}`;
   async function open(mode = '') { await page.goto(`${url}/?mode=${mode}`); }
   async function choose() {
+    await page.getByRole('combobox').click();
     await page.getByRole('combobox').fill('研发');
     await page.getByRole('option', { name: 'Codex 研发账号', exact: true }).click();
     await page.getByRole('button', { name: '刷新状态', exact: true }).waitFor();
@@ -121,6 +124,14 @@ try {
   assert.deepEqual(errors, []);
   checks.push('mobile no overflow, no consume or inference requests, no browser errors');
   writeFileSync(`${artifact}/evidence.json`, JSON.stringify({ fixtureOnly: true, realConsume: false, checks }, null, 2));
+} catch (error) {
+  if (page) {
+    await page.screenshot({ path: `${artifact}/failure.png`, fullPage: true, animations: 'disabled' }).catch(() => {});
+    writeFileSync(`${artifact}/failure.html`, await page.content().catch(() => 'Unavailable'));
+    writeFileSync(`${artifact}/failure.json`, JSON.stringify({ message: error.message, errors, checks,
+      requests: await page.evaluate(() => window.requests).catch(() => []) }, null, 2));
+  }
+  throw error;
 } finally {
   await browser?.close();
   await new Promise(resolve => server.close(resolve));
