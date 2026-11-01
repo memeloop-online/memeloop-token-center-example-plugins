@@ -2,21 +2,19 @@
 wit_bindgen::generate!({ path: "wit", world: "background-actions-plugin" });
 
 use exports::memeloop::background_actions::planner::{Context, Guest, ResetCreditIntent};
-use serde::Deserialize;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 const LEAD_MS: i64 = 600_000;
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Configuration {}
 
 fn plan(input: Context) -> Result<Option<ResetCreditIntent>, String> {
     if input.config_json.len() > 1024 {
         return Err("configuration exceeds bound".into());
     }
-    let _: Configuration = serde_json::from_str(&input.config_json)
+    let config: BTreeMap<String, serde_json::Value> = serde_json::from_str(&input.config_json)
         .map_err(|_| "invalid configuration: expected an empty object")?;
+    if !config.is_empty() {
+        return Err("invalid configuration: expected an empty object".into());
+    }
     if input.now_ms < 0
         || input.authorization_revision <= 0
         || input.tenant_external_id.is_empty()
