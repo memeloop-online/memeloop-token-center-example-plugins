@@ -1,0 +1,90 @@
+name: unified quota candidate host contract
+on:
+  pull_request:
+    paths: ['plugin-sources/soonest-reset/**', '.github/workflows/unified-quota-contract.yml']
+  push:
+    branches: [master]
+    paths: ['plugin-sources/soonest-reset/**', '.github/workflows/unified-quota-contract.yml']
+permissions:
+  contents: read
+jobs:
+  candidate-host:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: 2
+      CARGO_PROFILE_TEST_DEBUG: 0
+      CANDIDATE_HOST: 827e847a2d501d4e95f25be3e594b4a7e9fa2c9b
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: token_center
+          POSTGRES_PASSWORD: token_center
+          POSTGRES_DB: quota_contract
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: memeloop-online/memeloop-token-center
+          ref: ${{ env.CANDIDATE_HOST }}
+          path: .candidate-host
+          persist-credentials: false
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: memeloop-online/memeloop-token-center-example-plugins
+          ref: 21489f4fee6266de99fe7e258349468ce77af8bd
+          path: .candidate-host/.plugin-examples
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+        with:
+          toolchain: 1.95.0
+          targets: wasm32-unknown-unknown
+      - name: Build the combined quota component
+        run: |
+          cargo test --locked --manifest-path plugin-sources/soonest-reset/Cargo.toml
+          cargo build --locked --release --target wasm32-unknown-unknown --manifest-path plugin-sources/soonest-reset/Cargo.toml
+          curl --fail --location --retry 3 --max-time 120 https://github.com/bytecodealliance/wasm-tools/releases/download/v1.252.0/wasm-tools-1.252.0-x86_64-linux.tar.gz --output "$RUNNER_TEMP/wasm-tools.tar.gz"
+          echo '097b1181d5b2bc3f2ebc44b4e72edf18308902023f1f1483a1a7dc1268ea988d  '"$RUNNER_TEMP/wasm-tools.tar.gz" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/tools" dist/quota-management/ui
+          tar -xzf "$RUNNER_TEMP/wasm-tools.tar.gz" -C "$RUNNER_TEMP/tools" --strip-components=1
+          "$RUNNER_TEMP/tools/wasm-tools" component new plugin-sources/soonest-reset/target/wasm32-unknown-unknown/release/mtc_soonest_reset.wasm -o dist/quota-management/plugin.wasm
+          "$RUNNER_TEMP/tools/wasm-tools" component wit dist/quota-management/plugin.wasm > "$RUNNER_TEMP/combined.wit"
+          if grep -Eq '^[[:space:]]*import ' "$RUNNER_TEMP/combined.wit"; then exit 1; fi
+          grep -F 'memeloop:background-actions/planner@0.1.0' "$RUNNER_TEMP/combined.wit"
+          grep -F 'memeloop:token-center/group-routing-v1@0.2.0' "$RUNNER_TEMP/combined.wit"
+          cp plugin-sources/soonest-reset/plugin.json plugin-sources/soonest-reset/README.md LICENSE dist/quota-management/
+          cp plugin-sources/soonest-reset/ui/quota-management.mjs dist/quota-management/ui/
+      - name: Exercise combined quota routing and reset worker through the candidate host
+        env:
+          MTC_SOONEST_RESET_PACKAGE: ${{ github.workspace }}/dist/quota-management
+          MTC_CODEX_EXPIRING_RESET_PACKAGE: ${{ github.workspace }}/dist/quota-management
+          MTC_TEST_POSTGRES_URL: postgres://token_center:token_center@127.0.0.1:5432/quota_contract
+        run: |
+          test "$(git -C .candidate-host rev-parse HEAD)" = "$CANDIDATE_HOST"
+          cmp plugin-sources/soonest-reset/wit/deps/token-center/token-center.wit .candidate-host/wit/token-center.wit
+          cmp plugin-sources/soonest-reset/wit/deps/background-actions/background-actions.wit .candidate-host/wit/background-actions.wit
+          mv .candidate-host "$RUNNER_TEMP/quota-candidate-host"
+          cd "$RUNNER_TEMP/quota-candidate-host"
+          cargo test --locked --all-features --test first_party_soonest_reset -- --ignored
+          cargo test --locked --all-features --lib soonest_reset_real_gateway -- --ignored
+          cargo test --locked --all-features --lib remaining_quota_real_gateway -- --ignored
+          cargo test --locked --all-features --lib allocation_two_gateways_retry_share_history_and_restart
+          cargo test --locked --all-features --lib broken_group_configuration_continues_to_the_upstream
+      - name: Exercise reset authority and idempotency through both databases
+        if: ${{ !cancelled() }}
+        working-directory: ${{ runner.temp }}/quota-candidate-host
+        env:
+          MTC_CODEX_EXPIRING_RESET_PACKAGE: ${{ github.workspace }}/dist/quota-management
+          MTC_TEST_POSTGRES_URL: postgres://token_center:token_center@127.0.0.1:5432/quota_contract
+        run: cargo test --locked --all-features --lib codex_background_action_real_component_worker_contract -- --ignored
+      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+        if: always()
+        with:
+          name: unified-quota-candidate-${{ github.sha }}
+          path: dist/quota-management/
+          if-no-files-found: warn

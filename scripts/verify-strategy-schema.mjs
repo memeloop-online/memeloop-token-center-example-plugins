@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-// CI contract: presentation annotations must not change the persisted config shape.
+// CI contract for localized configuration and compatible resource bindings.
 const strategies = [
   ['plugin-sources/preferred-account', 'group_routing', { preferred_account_ids: [] }],
-  ['plugin-sources/soonest-reset', 'group_routing', { target_provider: '', target_window_id: '' }],
+  ['plugin-sources/soonest-reset', 'group_routing', { target_provider: '', target_window_id: '', mode: 'remaining_balance' }],
   ['plugin-sources/model-guard', 'configuration', { blocked_models: [] }],
   ['examples/plugins/policy-rewrite', 'configuration', { enabled: false }],
 ];
@@ -25,7 +25,7 @@ for (const [directory, contribution, defaults] of strategies) {
   const config = manifest.contributions[contribution];
   assert.deepEqual(config.default, defaults);
   assert.deepEqual(Object.keys(config.schema.properties).sort(), Object.keys(defaults).sort());
-  assert.deepEqual([...config.schema.required].sort(), Object.keys(defaults).sort());
+  assert.deepEqual([...config.schema.required].sort(), Object.keys(defaults).filter(key => key !== 'mode').sort());
   assert.equal(config.schema.additionalProperties, false);
   assertLabels(config.schema);
   if (directory === 'plugin-sources/soonest-reset') assert.deepEqual(config.schema['x-resource-choice'], {

@@ -46,6 +46,15 @@ jobs:
     name: verify exact examples in the real host
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: token_center
+          POSTGRES_PASSWORD: token_center
+          POSTGRES_DB: quota_contract
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
     permissions:
       contents: read
       actions: read
@@ -88,7 +97,7 @@ jobs:
         run: |
           test "$(git -C .publication-host rev-parse HEAD)" = "$HOST_SOURCE_REVISION"
           test "$(git -C .publication-host/.plugin-examples rev-parse HEAD)" = "$HOST_FIXTURE_REVISION"
-          cmp wit/token-center.wit .publication-host/wit/token-center.wit
+          cmp plugin-sources/soonest-reset/wit/deps/token-center/token-center.wit .publication-host/wit/token-center.wit
           # The host is a standalone crate, outside this repository's Cargo
           # workspace. Preserve its immutable checkout instead of editing either
           # Cargo.toml to manufacture workspace membership.
@@ -173,11 +182,21 @@ jobs:
           MTC_SOONEST_RESET_PACKAGE: ${{ github.workspace }}/dist/examples/packages/mtc-soonest-reset
           MTC_MODEL_GUARD_PACKAGE: ${{ github.workspace }}/dist/examples/packages/mtc-model-guard
           MTC_PREFERRED_ACCOUNT_PACKAGE: ${{ github.workspace }}/dist/examples/packages/mtc-preferred-account
+          MTC_TEST_POSTGRES_URL: postgres://token_center:token_center@127.0.0.1:5432/quota_contract
         run: |
           cargo test --locked --all-features --test first_party_model_guard -- --ignored
           cargo test --locked --all-features --test first_party_preferred_account -- --ignored
           cargo test --locked --all-features --test first_party_soonest_reset -- --ignored
           cargo test --locked --all-features --lib soonest_reset_real_gateway -- --ignored
+          cargo test --locked --all-features --lib remaining_quota_real_gateway -- --ignored
+          cargo test --locked --all-features --lib allocation_two_gateways_retry_share_history_and_restart
+          cargo test --locked --all-features --lib broken_group_configuration_continues_to_the_upstream
+      - name: Verify unified reset authority and idempotency on both databases
+        working-directory: ${{ runner.temp }}/example-publication-host
+        env:
+          MTC_CODEX_EXPIRING_RESET_PACKAGE: ${{ github.workspace }}/dist/examples/packages/mtc-soonest-reset
+          MTC_TEST_POSTGRES_URL: postgres://token_center:token_center@127.0.0.1:5432/quota_contract
+        run: cargo test --locked --all-features --lib codex_background_action_real_component_worker_contract -- --ignored
       - name: Record unsigned review archives after real host acceptance
         run: node scripts/example-publication.mjs review
       - name: Preserve review packages and the newly compiled policy binary
@@ -246,7 +265,7 @@ jobs:
         run: |
           test "$(git -C .compatible-host rev-parse HEAD)" = "$HOST_SOURCE_REVISION"
           test "$(git -C .compatible-host/.plugin-examples rev-parse HEAD)" = "$HOST_FIXTURE_REVISION"
-          cmp wit/token-center.wit .compatible-host/wit/token-center.wit
+          cmp plugin-sources/soonest-reset/wit/deps/token-center/token-center.wit .compatible-host/wit/token-center.wit
           mkdir -p "$MTC_EXAMPLE_MODEL_GUARD_PACKAGE"
           cp plugin-sources/model-guard/plugin.json "$MTC_EXAMPLE_MODEL_GUARD_PACKAGE/plugin.json"
           cp .compat-components/model-guard.wasm "$MTC_EXAMPLE_MODEL_GUARD_PACKAGE/plugin.wasm"
