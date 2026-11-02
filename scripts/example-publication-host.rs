@@ -322,8 +322,8 @@ async fn policy_large_inputs_and_real_model_guard_chain() {
     );
 }
 
-// Reproduce the exact previously published component failure in CI on both
-// immutable hosts. This is a synthetic package regression, not live attribution.
+// Reproduce the previously published component's large-input failure
+// against the official compatible host using a synthetic request.
 #[tokio::test]
 async fn published_pre_growth_component_fails_large_default_off_input() {
     let (directory, fixed) = runtime("example-policy-rewrite").await;
@@ -344,11 +344,13 @@ async fn published_pre_growth_component_fails_large_default_off_input() {
     let failure = before_growth
         .apply_traffic(context(), &request)
         .unwrap_err();
-    assert!(
-        failure
-            .to_string()
-            .contains("plugin example-policy-rewrite execution failed")
-    );
+    assert!(matches!(
+        failure,
+        memeloop_token_center::error::AppError::Upstream {
+            code: "plugin_execution_failed",
+            ..
+        }
+    ));
     let decision = fixed.apply_traffic(context(), &request).unwrap();
     assert!(decision.allow);
     assert!(decision.request_json.is_none());
