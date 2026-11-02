@@ -14,10 +14,10 @@ jobs:
     env:
       CARGO_BUILD_JOBS: 2
       CARGO_PROFILE_TEST_DEBUG: 0
-      CANDIDATE_HOST: b0b8d4a15b3e73bbe8b67ed906a76c896f906fd4
+      CANDIDATE_HOST: a344b9b84583dee735ef4aa1c0c21c96ece23ce1
     services:
       postgres:
-        image: postgres:17
+        image: postgres:16-alpine
         env:
           POSTGRES_USER: token_center
           POSTGRES_PASSWORD: token_center
