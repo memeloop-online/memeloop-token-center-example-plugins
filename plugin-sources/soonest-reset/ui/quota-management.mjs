@@ -28,7 +28,7 @@ export function createPresentation(React, Fluent) {
       h(Fluent.Badge, { appearance: 'tint', color: 'brand', style: { justifySelf: 'start' } }, 'Codex · 额度管理'),
       h(Fluent.Text, { as: 'h1', size: 700, weight: 'semibold', style: { margin: 0 } }, '额度管理'),
       h(Fluent.Text, { style: styles.subdued },
-        '为已开启的 Codex 账号，在手动重置次数到期前 10 分钟自动使用一次。'));
+        '按额度分配 Codex 请求，并在已授权账号的手动重置次数到期前 10 分钟自动使用一次。'));
   }
 
   function Empty({ title, description }) {
@@ -43,10 +43,10 @@ export function createPresentation(React, Fluent) {
 const PLUGIN_ID = 'mtc-soonest-reset';
 const scopePath = (path, tenant) => `${path}?${new URLSearchParams({ tenant_external_id: tenant })}`;
 const errorCopy = (error) => {
-  if ([401, 403].includes(error?.status)) return '当前账号缺少操作权限，请联系管理员。';
+  if ([401, 403].includes(error?.status)) return '请联系管理员开通此账号的额度管理权限。';
   if (error?.status === 409) return '授权已被其他操作更新。请刷新后确认当前设置。';
   if (error?.status === 404) return '升级宿主版本后即可使用此功能，请联系管理员。';
-  return '暂时无法读取或保存设置。请刷新核实当前状态后重试。';
+  return '设置读取或保存失败。请刷新状态后重试。';
 };
 
 export function creditSummary(snapshot, now = Date.now()) {
@@ -133,9 +133,9 @@ export function activateOperatorUi({ React, Fluent, defineOperatorUiPackage }) {
     const summary = creditSummary(quota, now);
     const fresh = quota && Number.isFinite(quota.stale_after) && quota.stale_after > now;
     const expiry = fresh && summary.reliable ? summary.expiry : null;
-    const date = value => Number.isFinite(value) ? new Date(value).toLocaleString(locale || 'zh-CN') : '暂未获取';
+    const date = value => Number.isFinite(value) ? new Date(value).toLocaleString(locale || 'zh-CN') : '待刷新';
     const outcome = uncertain ? '需要核实'
-      : blocked ? '已暂停，等待检查'
+      : blocked ? '已暂停，待检查'
         : result === 'accepted' ? '已使用一次'
           : operation?.settled_at ? '已核实' : '等待';
     async function toggle() {
@@ -177,13 +177,13 @@ export function activateOperatorUi({ React, Fluent, defineOperatorUiPackage }) {
       error && h(Notice, { intent: 'error' }, error),
       saved && h(Notice, { intent: 'success' }, saved),
       uncertain && h(Notice, { intent: 'warning' }, '上次使用结果待核实，自动使用已暂停。请打开上游账号查看重置记录。'),
-      !uncertain && needsVerification && h(Notice, null, '已使用一次，正在等待结果核实。核实完成后才能继续自动使用。'),
+      !uncertain && needsVerification && h(Notice, null, '已提交一次使用请求，正在核实结果。'),
       (quotaError || (quota && (!summary.reliable || !fresh))) && h(Notice, { intent: 'warning' }, '手动重置次数信息待确认。系统会重新检查可用次数和到期时间。'),
       h('div', { style: styles.metrics },
-        h(Metric, { label: '可用手动重置次数', value: fresh && summary.count !== null ? `${summary.count} 次` : '暂未获取' }),
-        h(Metric, { label: '最近一次到期', value: expiry ? date(expiry) : fresh && summary.count === 0 ? '暂无可用次数' : '暂未获取' }),
-        h(Metric, { label: '预计开始执行', value: !data ? '待确认授权' : !enabled ? '未开启' : needsVerification ? '等待核实' : blocked ? '等待检查' : expiry ? date(expiry - 600_000) : '等待有效到期时间', note: '在到期前 10 分钟内检查并执行' }),
-        h(Metric, { label: '最后结果', value: data ? outcome : '暂未获取', note: grant?.last_attempt_at ? `最近检查 ${date(grant.last_attempt_at)}` : '尚无自动执行检查记录' })),
+        h(Metric, { label: '可用手动重置次数', value: fresh && summary.count !== null ? `${summary.count} 次` : '待刷新' }),
+        h(Metric, { label: '最近一次到期', value: expiry ? date(expiry) : fresh && summary.count === 0 ? '0 次' : '待刷新' }),
+        h(Metric, { label: '预计开始执行', value: !data ? '待确认授权' : !enabled ? '已关闭' : needsVerification ? '结果核实中' : blocked ? '待检查' : expiry ? date(expiry - 600_000) : '到期时间待刷新', note: '在到期前 10 分钟内检查并执行' }),
+        h(Metric, { label: '最后结果', value: data ? outcome : '待刷新', note: grant?.last_attempt_at ? `最近检查 ${date(grant.last_attempt_at)}` : '开启后开始自动检查' })),
       h(Fluent.Card, { appearance: 'outline', style: { padding: 24 } },
         h('div', { style: styles.row },
           h(Fluent.Text, { as: 'h2', size: 400, weight: 'semibold' }, '重置记录'),
@@ -195,7 +195,7 @@ export function activateOperatorUi({ React, Fluent, defineOperatorUiPackage }) {
               h(Fluent.Text, null, operation.settled_at ? `已核实于 ${date(operation.settled_at)}` : '结果核实中。'),
               h(Fluent.Text, { style: styles.subdued }, '可在上游账号中查看重置状态并核实。'))),
       h('div', { style: styles.row },
-        h(Fluent.Text, { size: 200, style: styles.subdued }, quota?.observed_at ? `次数读取于 ${date(quota.observed_at)}` : '尚无次数读取时间'),
+        h(Fluent.Text, { size: 200, style: styles.subdued }, quota?.observed_at ? `次数读取于 ${date(quota.observed_at)}` : '次数信息待刷新'),
         h(Fluent.Button, { disabled: loading || saving, onClick: () => { setSaved(''); setReload(value => value + 1); } }, '刷新状态')));
   }
 
