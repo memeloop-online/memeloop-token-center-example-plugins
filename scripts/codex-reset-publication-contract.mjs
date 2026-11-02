@@ -86,6 +86,15 @@ test('pending official pins reject signing and require a complete new release', 
   assert.throws(() => requireReadyTrust({ ...ready, installer_source_revision: 'e'.repeat(40) }));
 });
 
+test('official Cosign versions include standard releases and reviewed MTC patches', () => {
+  for (const cosign_version of ['v3.1.4', 'v3.1.3-mtc.4']) {
+    requireReadyTrust({ ...ready, cosign_version });
+  }
+  for (const cosign_version of ['', 'latest', 'v3.1.4-other.1', 'v3.1.4\n']) {
+    assert.throws(() => requireReadyTrust({ ...ready, cosign_version }));
+  }
+});
+
 test('only the fixed background planner and operator entry are packageable', () => {
   checkManifest(manifest);
   for (const change of [

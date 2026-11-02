@@ -94,7 +94,8 @@ export function requireReadyTrust(trust) {
   for (const key of ['host_source_revision', 'installer_source_revision', 'minimum_installer_contract_revision']) assert.match(trust[key] ?? '', /^[0-9a-f]{40}$/);
   for (const key of ['host_reference']) assert.match(trust[key] ?? '', /^ghcr\.io\/memeloop-online\/memeloop-token-center@sha256:[0-9a-f]{64}$/);
   assert.match(trust.installer_digest ?? '', /^sha256:[0-9a-f]{64}$/);
-  assert.match(trust.cosign_version ?? '', /^v\d+\.\d+\.\d+-mtc\.\d+$/);
+  assert.match(trust.cosign_version ?? '', /^v\d+\.\d+\.\d+(?:-mtc\.\d+)?$/);
+  assert.equal(trust.cosign_version, trust.cosign_version.trim());
   assert.match(trust.host_verification_run ?? '', /^https:\/\/github\.com\/memeloop-online\/memeloop-token-center\/actions\/runs\/[0-9]+$/);
   assert.match(trust.installer_verification_run ?? '', /^https:\/\/github\.com\/memeloop-online\/memeloop-token-center\/actions\/runs\/[0-9]+$/);
   assert.equal(trust.installer_source_revision, trust.host_source_revision);
