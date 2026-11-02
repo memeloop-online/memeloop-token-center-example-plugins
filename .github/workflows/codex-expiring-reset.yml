@@ -1,0 +1,73 @@
+name: verify Codex expiring reset planner
+on:
+  pull_request:
+    paths:
+      - 'plugin-sources/codex-expiring-reset/**'
+      - '.github/workflows/codex-expiring-reset.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'plugin-sources/codex-expiring-reset/**'
+      - '.github/workflows/codex-expiring-reset.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  planner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+        with:
+          toolchain: 1.95.0
+          components: rustfmt
+          targets: wasm32-unknown-unknown
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.18.0
+      - name: Format, test and build pure planner
+        run: |
+          cargo fmt --manifest-path plugin-sources/codex-expiring-reset/Cargo.toml -- --check
+          cargo test --locked --manifest-path plugin-sources/codex-expiring-reset/Cargo.toml
+          cargo build --locked --release --target wasm32-unknown-unknown --manifest-path plugin-sources/codex-expiring-reset/Cargo.toml
+      - name: Install checksum-pinned component tooling
+        run: |
+          curl --fail --location --retry 3 --max-time 120 https://github.com/bytecodealliance/wasm-tools/releases/download/v1.252.0/wasm-tools-1.252.0-x86_64-linux.tar.gz --output "$RUNNER_TEMP/wasm-tools.tar.gz"
+          echo '097b1181d5b2bc3f2ebc44b4e72edf18308902023f1f1483a1a7dc1268ea988d  '"$RUNNER_TEMP/wasm-tools.tar.gz" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/component-tools"
+          tar -xzf "$RUNNER_TEMP/wasm-tools.tar.gz" -C "$RUNNER_TEMP/component-tools" --strip-components=1
+          echo "$RUNNER_TEMP/component-tools" >> "$GITHUB_PATH"
+      - name: Validate pure component and assemble unsigned review package
+        run: |
+          mkdir -p dist/codex-expiring-reset
+          wasm-tools component new plugin-sources/codex-expiring-reset/target/wasm32-unknown-unknown/release/mtc_codex_expiring_reset.wasm -o dist/codex-expiring-reset/plugin.wasm
+          wasm-tools validate --features component-model dist/codex-expiring-reset/plugin.wasm
+          wasm-tools component wit dist/codex-expiring-reset/plugin.wasm > "$RUNNER_TEMP/planner.wit"
+          if grep -Eq '^[[:space:]]*import ' "$RUNNER_TEMP/planner.wit"; then exit 1; fi
+          grep -F 'memeloop:background-actions/planner@0.1.0' "$RUNNER_TEMP/planner.wit"
+          cp plugin-sources/codex-expiring-reset/plugin.json plugin-sources/codex-expiring-reset/README.md LICENSE dist/codex-expiring-reset/
+          mkdir -p dist/codex-expiring-reset/ui
+          cp plugin-sources/codex-expiring-reset/ui/codex-expiring-reset.mjs dist/codex-expiring-reset/ui/
+      - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+        with:
+          name: codex-expiring-reset-review-${{ github.sha }}
+          path: dist/codex-expiring-reset/
+          if-no-files-found: error
+          retention-days: 90
+      - name: Install pinned UI and browser dependencies in CI
+        run: |
+          npm install --no-save --package-lock=false react@19.2.8 react-dom@19.2.8 @fluentui/react-components@9.74.7 playwright@1.62.1 esbuild@0.25.12
+          npx playwright install --with-deps chromium
+      - name: Review packaged UI in Chromium
+        run: node plugin-sources/codex-expiring-reset/ui/browser-review.mjs
+      - name: Preserve browser review evidence
+        if: always()
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+        with:
+          name: codex-expiring-reset-browser-${{ github.sha }}
+          path: dist/codex-expiring-reset-browser/
+          if-no-files-found: warn
+          retention-days: 90

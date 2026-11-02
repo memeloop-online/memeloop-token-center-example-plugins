@@ -1,0 +1,33 @@
+{
+  "id": "mtc-codex-expiring-reset",
+  "version": "1.0.0",
+  "wit_version": "0.2.0",
+  "wasm": "plugin.wasm",
+  "capabilities": [{"kind": "quota_reset_credit"}],
+  "contributions": {
+    "background_actions": {"interval_seconds": 60},
+    "configuration": {
+      "schema": {
+        "type": "object",
+        "title": "Codex 手动重置次数到期前自动使用",
+        "description": "为已开启的 Codex 账号，在手动重置次数到期前 10 分钟自动使用一次。",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "default": {}
+    },
+    "operator_ui": [
+      {
+        "id": "codex-expiring-reset",
+        "slot": "operator.sidebar.tab",
+        "category": {"id": "automation", "label": "自动化"},
+        "route": "codex-expiring-reset",
+        "label": "Codex 到期重置",
+        "icon": "activity",
+        "renderer": "component_v1",
+        "module_entry": "ui/codex-expiring-reset.mjs",
+        "component_id": "workspace"
+      }
+    ]
+  }
+}
