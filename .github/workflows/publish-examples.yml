@@ -97,7 +97,7 @@ jobs:
         run: |
           test "$(git -C .publication-host rev-parse HEAD)" = "$HOST_SOURCE_REVISION"
           test "$(git -C .publication-host/.plugin-examples rev-parse HEAD)" = "$HOST_FIXTURE_REVISION"
-          cmp wit/token-center.wit .publication-host/wit/token-center.wit
+          cmp plugin-sources/soonest-reset/wit/deps/token-center/token-center.wit .publication-host/wit/token-center.wit
           # The host is a standalone crate, outside this repository's Cargo
           # workspace. Preserve its immutable checkout instead of editing either
           # Cargo.toml to manufacture workspace membership.
@@ -265,7 +265,7 @@ jobs:
         run: |
           test "$(git -C .compatible-host rev-parse HEAD)" = "$HOST_SOURCE_REVISION"
           test "$(git -C .compatible-host/.plugin-examples rev-parse HEAD)" = "$HOST_FIXTURE_REVISION"
-          cmp wit/token-center.wit .compatible-host/wit/token-center.wit
+          cmp plugin-sources/soonest-reset/wit/deps/token-center/token-center.wit .compatible-host/wit/token-center.wit
           mkdir -p "$MTC_EXAMPLE_MODEL_GUARD_PACKAGE"
           cp plugin-sources/model-guard/plugin.json "$MTC_EXAMPLE_MODEL_GUARD_PACKAGE/plugin.json"
           cp .compat-components/model-guard.wasm "$MTC_EXAMPLE_MODEL_GUARD_PACKAGE/plugin.wasm"

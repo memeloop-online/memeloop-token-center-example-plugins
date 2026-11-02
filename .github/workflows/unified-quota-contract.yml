@@ -66,7 +66,7 @@ jobs:
           MTC_TEST_POSTGRES_URL: postgres://token_center:token_center@127.0.0.1:5432/quota_contract
         run: |
           test "$(git -C .candidate-host rev-parse HEAD)" = "$CANDIDATE_HOST"
-          cmp wit/token-center.wit .candidate-host/wit/token-center.wit
+          cmp plugin-sources/soonest-reset/wit/deps/token-center/token-center.wit .candidate-host/wit/token-center.wit
           cmp plugin-sources/soonest-reset/wit/deps/background-actions/background-actions.wit .candidate-host/wit/background-actions.wit
           mv .candidate-host "$RUNNER_TEMP/quota-candidate-host"
           cd "$RUNNER_TEMP/quota-candidate-host"
