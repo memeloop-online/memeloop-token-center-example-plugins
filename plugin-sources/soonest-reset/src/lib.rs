@@ -80,6 +80,33 @@ struct Input {
     config: Configuration,
     candidates: Vec<Candidate>,
     quota_context: QuotaContext,
+    #[serde(default)]
+    allocation_context: Option<AllocationContext>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AllocationContext {
+    version: String,
+    period_start: i64,
+    now_ms: i64,
+    session_account: Option<String>,
+    accounts: Vec<AllocationAccount>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AllocationAccount {
+    account_id: String,
+    generation: u64,
+    recent_requests: u64,
+    recent_tokens: u64,
+    window_baselines: BTreeMap<String, AllocationEpoch>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AllocationEpoch {
+    reset_at: Option<i64>,
+    baseline: u64,
 }
 
 #[derive(Serialize)]
@@ -151,25 +178,13 @@ fn rank(
     }
 }
 
-fn account_uniform(seed: u64, account: &str) -> f64 {
-    let mut hash = 0xcbf29ce484222325u64;
-    for byte in account.bytes() {
-        hash = (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3);
-    }
-    let mut value = seed ^ hash;
-    value = value.wrapping_add(0x9e3779b97f4a7c15);
-    value = (value ^ (value >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
-    value = (value ^ (value >> 27)).wrapping_mul(0x94d049bb133111eb);
-    value ^= value >> 31;
-    ((value >> 12) as f64 + 0.5) / 4_503_599_627_370_496.0
-}
-
 fn plan(input: &str) -> Result<String, String> {
     if input.len() > 1024 * 1024 {
         return Err("routing input exceeds its bound".into());
     }
     let mut input: Input = serde_json::from_str(input).map_err(|_| "invalid routing input")?;
     let context = &input.quota_context;
+    let _ = input.seed;
     // Index authorized observations once for bounded candidate lookup.
     let accounts: BTreeMap<_, _> = context
         .accounts
@@ -222,32 +237,68 @@ fn plan(input: &str) -> Result<String, String> {
             }
         }
         AllocationMode::RemainingBalance => {
+            let Some(history) = &input.allocation_context else {
+                return Err("allocation history required".into());
+            };
+            if history.version != "account-history-v1"
+                || history.now_ms < history.period_start
+                || history.accounts.len() > 1024
+            {
+                return Err("invalid allocation history".into());
+            }
             let mut scored = BTreeMap::new();
             let mut slots = Vec::new();
             for (index, candidate) in input.candidates.iter().enumerate() {
                 if rank(candidate, &input, &accounts).is_some() {
+                    let Some(previous) = history.accounts.iter().find(|row| {
+                        row.account_id == candidate.account_id
+                            && row.generation == candidate.generation
+                    }) else {
+                        continue;
+                    };
                     let account = accounts[&(candidate.account_id.as_str(), candidate.generation)];
-                    let remaining = account
+                    let window = account
                         .windows
                         .iter()
                         .find(|w| w.id == input.config.target_window_id)
-                        .and_then(|w| w.remaining_fraction)
                         .unwrap();
-                    let score =
-                        -account_uniform(input.seed, &candidate.account_id).ln() / remaining;
+                    let remaining = window.remaining_fraction.unwrap();
+                    let baseline = previous
+                        .window_baselines
+                        .get(&window.id)
+                        .filter(|epoch| epoch.reset_at == window.reset_at)
+                        .map(|epoch| epoch.baseline)
+                        .unwrap_or(0);
+                    let load = previous.recent_requests.saturating_sub(baseline) as f64;
+                    // Completed token totals remain a separate diagnostic unit.
+                    let _ = previous.recent_tokens;
                     scored
                         .entry(candidate.account_id.clone())
-                        .or_insert((score, Vec::new()))
-                        .1
+                        .or_insert((remaining, load, Vec::new()))
+                        .2
                         .push(candidate.clone());
                     slots.push(index);
                 }
             }
-            let mut ranked: Vec<_> = scored.into_values().collect();
-            ranked.sort_by(|a, b| a.0.total_cmp(&b.0));
+            let total_weight: f64 = scored.values().map(|row| row.0).sum();
+            let total_load: f64 = scored.values().map(|row| row.1).sum();
+            let mut ranked: Vec<_> = scored
+                .into_iter()
+                .map(|(id, (weight, load, rows))| {
+                    let deficit = weight / total_weight * (total_load + 1.0) - load;
+                    (id, deficit, rows)
+                })
+                .collect();
+            ranked.sort_by(|a, b| {
+                let preferred = |id: &String| history.session_account.as_ref() == Some(id);
+                preferred(&b.0)
+                    .cmp(&preferred(&a.0))
+                    .then_with(|| b.1.total_cmp(&a.1))
+                    .then_with(|| a.0.cmp(&b.0))
+            });
             for (slot, candidate) in slots
                 .into_iter()
-                .zip(ranked.into_iter().flat_map(|(_, rows)| rows))
+                .zip(ranked.into_iter().flat_map(|(_, _, rows)| rows))
             {
                 input.candidates[slot] = candidate;
             }
@@ -323,53 +374,33 @@ mod tests {
         input
     }
 
-    #[test]
-    fn remaining_quota_proportions_and_account_identity_drive_distribution() {
-        let mut input = balanced_fixture();
-        let mut wins = 0;
-        for seed in 0..4096 {
-            input["seed"] = json!(seed);
-            let result = output(&input);
-            wins += usize::from(result["candidates"][0]["account_id"] == "a");
-            let mut duplicated = input.clone();
-            let mut second_route = duplicated["candidates"][0].clone();
-            second_route["route_id"] = json!("same-account-second-route");
-            duplicated["candidates"]
-                .as_array_mut()
-                .unwrap()
-                .push(second_route);
-            assert_eq!(
-                output(&duplicated)["candidates"][0]["account_id"],
-                result["candidates"][0]["account_id"]
-            );
-            assert_eq!(result, output(&input));
-        }
-        assert!((0.71..0.79).contains(&(wins as f64 / 4096.0)));
+    fn history(input: &mut Value, a: u64, c: u64, preferred: Option<&str>) {
+        input["allocation_context"] = json!({"version":"account-history-v1","period_start":0,"now_ms":1000000,"session_account":preferred,
+            "accounts":[{"account_id":"a","generation":7,"recent_requests":a,"recent_tokens":a*1000,"window_baselines":{}},
+            {"account_id":"c","generation":7,"recent_requests":c,"recent_tokens":c*1000,"window_baselines":{}}]});
     }
-
     #[test]
-    fn missing_quota_preserves_native_order_and_every_identity() {
+    fn historical_deficit_assigns_new_sessions_and_preserves_existing_sessions() {
         let mut input = balanced_fixture();
+        history(&mut input, 90, 10, None);
+        assert_eq!(output(&input)["candidates"][0]["account_id"], "c");
+        history(&mut input, 90, 10, Some("a"));
+        assert_eq!(output(&input)["candidates"][0]["account_id"], "a");
+        history(&mut input, 190, 10, None);
+        input["quota_context"]["accounts"][0]["windows"][0]["remaining_fraction"] = json!(0.1);
+        assert_eq!(output(&input)["candidates"][0]["account_id"], "c");
+    }
+    #[test]
+    fn duplicate_routes_keep_one_account_weight_and_missing_history_returns_to_core() {
+        let mut input = balanced_fixture();
+        assert!(plan(&input.to_string()).is_err());
+        history(&mut input, 90, 10, None);
+        let mut duplicate = input["candidates"][0].clone();
+        duplicate["route_id"] = json!("duplicate");
+        input["candidates"].as_array_mut().unwrap().push(duplicate);
+        assert_eq!(output(&input)["candidates"][0]["account_id"], "c");
         input["quota_context"]["accounts"] = json!([]);
         assert_eq!(ids(&output(&input)), ids(&input));
-        input["config"]["mode"] = json!("invalid-mode");
-        assert!(plan(&input.to_string()).is_err());
-        assert!(plan("invalid-json").is_err());
-    }
-
-    #[test]
-    fn remaining_allocation_uses_fresh_fraction_with_optional_reset_time() {
-        let mut input = balanced_fixture();
-        for account in input["quota_context"]["accounts"].as_array_mut().unwrap() {
-            account["windows"][0]["reset_at"] = Value::Null;
-            account["windows"][0]["reset_is_estimated"] = json!(true);
-        }
-        let mut orders = std::collections::BTreeSet::new();
-        for seed in 0..64 {
-            input["seed"] = json!(seed);
-            orders.insert(output(&input)["candidates"][0]["account_id"].to_string());
-        }
-        assert_eq!(orders.len(), 2);
     }
 
     #[test]

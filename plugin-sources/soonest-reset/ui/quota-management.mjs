@@ -234,7 +234,7 @@ export function activateOperatorUi({ React, Fluent, defineOperatorUiPackage }) {
       h(Intro),
       h(Fluent.Card, { appearance: 'outline', style: { padding: 20, display: 'grid', gap: 12 } },
         h(Fluent.Text, { as: 'h2', size: 500, weight: 'semibold' }, '额度分配'),
-        h(Fluent.Text, null, '按剩余额度比例分配：剩余额度越多，分配的请求越多，逐渐拉平各账号的剩余额度。也可优先使用即将重置的额度。'),
+        h(Fluent.Text, null, '同一会话优先沿用账号；新会话结合剩余额度和历史请求量，优先分配给较空闲的账号。也可优先使用即将重置的额度。'),
         h(Fluent.Link, { href: '/operator?view=routes' }, '设置账号组的额度分配')),
 
       !tenant ? h(Empty, { title: '先选择租户', description: '自动使用授权属于当前租户，请先选择要管理的租户。' })

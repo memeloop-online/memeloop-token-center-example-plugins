@@ -63,13 +63,13 @@
             "oneOf": [
               {
                 "const": "remaining_balance",
-                "title": "Balance remaining quota",
+                "title": "Balance new sessions using quota and request history",
                 "x-i18n": {
                   "zh-CN": {
-                    "title": "按剩余额度比例分配"
+                    "title": "按额度和历史分配新会话"
                   },
                   "en": {
-                    "title": "Balance remaining quota"
+                    "title": "Balance new sessions using quota and request history"
                   }
                 }
               },
@@ -89,7 +89,7 @@
             "x-i18n": {
               "zh-CN": {
                 "title": "分配方式",
-                "description": "剩余额度越多，分配的请求越多，逐渐拉平各账号的剩余额度。"
+                "description": "同一会话优先沿用账号；新会话结合剩余额度和历史请求量，优先分配给较空闲的账号。"
               },
               "en": {
                 "title": "Allocation method",
@@ -123,7 +123,8 @@
         "target_provider": "",
         "target_window_id": "",
         "mode": "remaining_balance"
-      }
+      },
+      "allocation_context": "account-history-v1"
     },
     "background_actions": {
       "interval_seconds": 60

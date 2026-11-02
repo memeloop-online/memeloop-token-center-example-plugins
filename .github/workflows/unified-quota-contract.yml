@@ -14,7 +14,7 @@ jobs:
     env:
       CARGO_BUILD_JOBS: 2
       CARGO_PROFILE_TEST_DEBUG: 0
-      CANDIDATE_HOST: efc65c0011d9b4865452bc5ef0e133a1cf40d0ef
+      CANDIDATE_HOST: f7ffb2a126e9e79c47bcd9fb4148005661595a57
     services:
       postgres:
         image: postgres:17
@@ -73,6 +73,7 @@ jobs:
           cargo test --locked --all-features --test first_party_soonest_reset -- --ignored
           cargo test --locked --all-features --lib soonest_reset_real_gateway -- --ignored
           cargo test --locked --all-features --lib remaining_quota_real_gateway -- --ignored
+          cargo test --locked --all-features --lib allocation_two_gateways_retry_share_history_and_restart
           cargo test --locked --all-features --lib broken_group_configuration_continues_to_the_upstream
       - name: Exercise reset authority and idempotency through both databases
         if: ${{ !cancelled() }}
