@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, copyFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 // Only this master-reviewed table selects executable inputs, paths and sources.
 // workflow_dispatch accepts its keys, never a path, command, ref or registry.
@@ -20,7 +20,7 @@ const packages = Object.freeze({
   'soonest-reset': {
     id: 'mtc-soonest-reset', directory: 'plugin-sources/soonest-reset',
     source: 'ghcr.io/memeloop-online/mtc-soonest-reset',
-    files: ['plugin.json', 'plugin.wasm', 'README.md', 'LICENSE'],
+    files: ['plugin.json', 'plugin.wasm', 'README.md', 'LICENSE', 'ui/quota-management.mjs'],
   },
   'google-antigravity': {
     id: 'google-antigravity', directory: 'plugins/google-antigravity',
@@ -101,7 +101,9 @@ function validateManifest(item, manifest) {
     assert.deepEqual(manifest.contributions.group_routing.default, { preferred_account_ids: [] });
   } else if (item.id === 'mtc-soonest-reset') {
     assert.equal(manifest.wasm, 'plugin.wasm');
-    assert.deepEqual(manifest.capabilities, [{ kind: 'group_routing_quota' }]);
+    assert.deepEqual(manifest.capabilities, [{ kind: 'group_routing_quota' }, { kind: 'quota_reset_credit' }]);
+    assert.equal(manifest.contributions.background_actions.interval_seconds, 60);
+    assert.equal(manifest.contributions.operator_ui[0].module_entry, 'ui/quota-management.mjs');
     assert.equal(manifest.contributions.group_routing.version, 'group-routing-v1');
     assert.equal(manifest.contributions.group_routing.health_policy, 'native');
   } else if (item.id === 'google-antigravity') {
@@ -124,7 +126,21 @@ function validateManifest(item, manifest) {
 
 function packageHashes(item, directory) {
   const expected = [...item.files, 'config.json'].sort();
-  assert.deepEqual(readdirSync(directory).sort(), expected, 'package must contain only the fixed file allowlist');
+  const actual = [];
+  const walk = (parent, prefix = '') => {
+    for (const entry of readdirSync(parent, { withFileTypes: true })) {
+      const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        assert(expected.some(file => file.startsWith(`${path}/`)), 'package directory must be allowlisted');
+        walk(join(parent, entry.name), path);
+      } else {
+        assert(entry.isFile(), 'package entries must be regular files');
+        actual.push(path);
+      }
+    }
+  };
+  walk(directory);
+  assert.deepEqual(actual.sort(), expected, 'package must contain the fixed file allowlist');
   return Object.fromEntries(expected.map(name => [name, hash(readFileSync(join(directory, name)))]));
 }
 
@@ -190,6 +206,7 @@ function assemble() {
       const source = file === 'LICENSE' ? file : file === 'plugin.wasm'
         ? join(process.env.RUNNER_TEMP, 'example-components', `${name}.wasm`)
         : join(item.directory, file);
+      mkdirSync(dirname(join(directory, file)), { recursive: true });
       copyFileSync(source, join(directory, file));
     }
     writeFileSync(join(directory, 'config.json'), '{"format_version":1}\n');
@@ -257,7 +274,10 @@ function select() {
   validateManifest(item, json(join(directory, 'plugin.json')));
   const destination = join(process.env.RUNNER_TEMP, 'plugin-package');
   mkdirSync(destination);
-  for (const file of [...item.files, 'config.json']) copyFileSync(join(directory, file), join(destination, file));
+  for (const file of [...item.files, 'config.json']) {
+    mkdirSync(dirname(join(destination, file)), { recursive: true });
+    copyFileSync(join(directory, file), join(destination, file));
+  }
   copyFileSync(join(dist, 'review', `${item.id}.json`), join(process.env.RUNNER_TEMP, 'plugin-build.json'));
   environment({ PLUGIN_ID: item.id, PLUGIN_SOURCE: item.source, SIGNING_IDENTITY: identity, SIGNING_ISSUER: issuer });
 }

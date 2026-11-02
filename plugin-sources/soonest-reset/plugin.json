@@ -1,11 +1,14 @@
 {
   "id": "mtc-soonest-reset",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "wit_version": "0.2.0",
   "wasm": "plugin.wasm",
   "capabilities": [
     {
       "kind": "group_routing_quota"
+    },
+    {
+      "kind": "quota_reset_credit"
     }
   ],
   "contributions": {
@@ -51,18 +54,60 @@
                 "description": "Prioritize accounts by when this quota resets."
               }
             }
+          },
+          "mode": {
+            "type": "string",
+            "title": "Allocation method",
+            "description": "Choose how account quota guides request allocation.",
+            "default": "remaining_balance",
+            "oneOf": [
+              {
+                "const": "remaining_balance",
+                "title": "Balance remaining quota",
+                "x-i18n": {
+                  "zh-CN": {
+                    "title": "按剩余额度比例分配"
+                  },
+                  "en": {
+                    "title": "Balance remaining quota"
+                  }
+                }
+              },
+              {
+                "const": "soonest_reset",
+                "title": "Prefer quota resetting soonest",
+                "x-i18n": {
+                  "zh-CN": {
+                    "title": "优先使用即将重置的额度"
+                  },
+                  "en": {
+                    "title": "Prefer quota resetting soonest"
+                  }
+                }
+              }
+            ],
+            "x-i18n": {
+              "zh-CN": {
+                "title": "分配方式",
+                "description": "剩余额度越多，分配的请求越多，逐渐拉平各账号的剩余额度。"
+              },
+              "en": {
+                "title": "Allocation method",
+                "description": "Choose how account quota guides request allocation."
+              }
+            }
           }
         },
-        "title": "Prefer accounts resetting soonest",
-        "description": "Prefer accounts whose quota resets soonest.",
+        "title": "Quota allocation",
+        "description": "Distribute requests using available account quota.",
         "x-i18n": {
           "zh-CN": {
-            "title": "优先使用即将重置的账号",
-            "description": "优先使用额度即将重置的账号"
+            "title": "额度分配",
+            "description": "按账号额度分配请求。"
           },
           "en": {
-            "title": "Prefer accounts resetting soonest",
-            "description": "Prefer accounts whose quota resets soonest."
+            "title": "Quota allocation",
+            "description": "Distribute requests using available account quota."
           }
         },
         "x-resource-choice": {
@@ -76,8 +121,38 @@
       },
       "default": {
         "target_provider": "",
-        "target_window_id": ""
+        "target_window_id": "",
+        "mode": "remaining_balance"
       }
-    }
+    },
+    "background_actions": {
+      "interval_seconds": 60
+    },
+    "configuration": {
+      "schema": {
+        "type": "object",
+        "title": "额度管理",
+        "description": "为已开启的 Codex 账号，在手动重置次数到期前 10 分钟自动使用一次。",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "default": {}
+    },
+    "operator_ui": [
+      {
+        "id": "quota-management",
+        "slot": "operator.sidebar.tab",
+        "category": {
+          "id": "automation",
+          "label": "自动化"
+        },
+        "route": "quota-management",
+        "label": "额度管理",
+        "icon": "activity",
+        "renderer": "component_v1",
+        "module_entry": "ui/quota-management.mjs",
+        "component_id": "workspace"
+      }
+    ]
   }
 }

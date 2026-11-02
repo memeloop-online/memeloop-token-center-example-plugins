@@ -1,66 +1,28 @@
-# Soonest Reset
+# 额度管理
 
-An independent, opt-in first-party group-routing guest. It does not modify the
-published Preferred Account plugin. It ranks only already-authorized healthy
-candidates using the host's read-only, credential-free `account-windows-v1`
-quota projection. It cannot fetch quota, refresh credentials, reset a supplier
-window, add a cooldown, delete a candidate or bypass native health decisions.
+统一管理 Codex 账号的请求分配与临期手动重置次数。插件沿用 `mtc-soonest-reset`，已有组配置可直接升级。
 
-The default configuration disables preference and retains native order:
+## 额度分配
 
-```json
-{"target_provider":"", "target_window_id":""}
-```
+在账号组策略中选择“额度分配”，选择本组实际额度（如“Codex · 周额度”），保存即可。唯一额度自动选中。
 
-To target the native Kimi quota adapter's explicit weekly usage window:
+- **按剩余额度比例分配**：剩余额度越多，分配的请求越多，逐渐拉平账号的剩余额度。以账号为单位计算权重，再保留该账号的候选路由。
+- **优先使用即将重置的额度**：先使用额度更早重置的账号。
+
+新配置默认使用比例分配。已有配置保留 `target_provider`、`target_window_id`，省略 `mode` 时继续使用即将重置排序。示例：
 
 ```json
-{"target_provider":"kimi-oauth", "target_window_id":"summary"}
+{"target_provider":"openai-codex","target_window_id":"code:primary_window","mode":"remaining_balance"}
 ```
 
-Both values are exact, case-sensitive IDs, not display labels. No supplier window
-is guessed from its duration or remaining time. A candidate is eligible only if
-its account and credential generation match the host observation, the observation
-is fresh at host-provided time, the target window has a strictly future,
-non-estimated reset instant and explicitly positive remaining fraction, and no
-observed window explicitly reports exhaustion or zero remaining fraction.
-Other providers, missing windows, unknown amounts and stale/expired observations
-cannot establish eligibility.
+核心提供带租户、账号代次与有效期的持久额度快照及每请求种子。插件通过确定性指数赛跑生成完整候选排列；相同账号的多条路由共享一个权重。缺失额度的候选保留核心位置。额度读取和重置工作由后台执行。
 
-Eligible candidates are stably sorted by earliest reset instant **only within
-their existing positions**. Unknown, exhausted and unhealthy candidates retain
-their exact native positions, not merely relative order. Ties and multiple routes
-for the same account preserve input order. Every authorized candidate is returned
-exactly once with its original tenant, route, account and credential generation.
-This is a partial preference, not a guarantee that an eligible account always
-precedes an unknown candidate. Setting either target value empty disables it.
+## 临期重置
 
-The manifest requests only `group_routing_quota` and sets `health_policy: native`.
-The host preserves authentication/quota/transient recovery, exclusive probe
-leases, deadlines and failover safety. Guest health directive values are unused
-ABI placeholders. `stickiness: false` prevents sticky preference from replacing
-the explicit order. The guest rejects observe calls; it never invents health
-or retry state. Missing/incomplete host quota context must fall back to native
-scheduling, never trigger a supplier request on the request path.
+打开“额度管理”，选择 Codex 账号并开启授权。系统在手动重置次数到期前十分钟自动使用一次。页面显示可用次数、到期时间、授权状态和最近结果。授权使用原有账号级 CAS 接口及后台执行记录。
 
-## Build and acceptance
+## 运行与发布合同
 
-The independent locked crate emits `mtc_soonest_reset.wasm`; CI wraps it using the
-existing pinned `wasm-tools` into `plugin.wasm`. Native algorithm tests and the
-real Wasm host fixture share `tests/fixtures/soonest-reset-v1.json`, including
-multiple routes for one account, ties, unknown and exhausted windows. Additional
-cases exercise expiry, estimates, bad data, non-target windows and native health.
-The host fixture requires `MTC_SOONEST_RESET_PACKAGE` and runs as
-`cargo test --all-features --test first_party_soonest_reset -- --ignored` in CI.
-The real gateway fixture `soonest_reset_real_gateway` seeds current-generation,
-current-config observations into its isolated database and checks earliest-reset
-selection, expired-evidence native fallback and native exhausted-account fallback.
-It also checks durable strategy state contains no guest health override.
-No supplier account or paid model request is needed for these checks.
+单一组件同时导出 `memeloop:token-center/group-routing-v1@0.2.0` 和 `memeloop:background-actions/planner@0.1.0`。两个规划器都使用核心授权的快照，分别返回候选排列和重置意图。核心负责权限、有效期、幂等记录与实际执行。
 
-Installation requires a runtime/installer supporting `group_routing_quota` and
-the shared quota observation path. Do not reuse an older reviewed installer pin
-that predates this capability. Source acceptance alone is not signed publication
-or production installation: use the reviewed fixed-package keyless publication
-and real OCI-install verification before the normal group configuration workflow.
-This source does not automatically install the package or bind any group.
+能力声明为 `group_routing_quota` 和 `quota_reset_credit`；后台周期为60秒。发布包含同版本组件、中文界面与签名安装证据。真实 host CI覆盖组合组件加载、额度路由、临期重置与界面操作。

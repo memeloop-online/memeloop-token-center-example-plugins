@@ -25,6 +25,14 @@ async fn runtime(id: &str) -> (tempfile::TempDir, PluginRuntime) {
     if manifest.wasm.is_some() {
         fs::copy(source.join("plugin.wasm"), package.join("plugin.wasm")).unwrap();
     }
+    if id == "mtc-soonest-reset" {
+        fs::create_dir_all(package.join("ui")).unwrap();
+        fs::copy(
+            source.join("ui/quota-management.mjs"),
+            package.join("ui/quota-management.mjs"),
+        )
+        .unwrap();
+    }
     if id == "example-policy-rewrite" {
         // Synthetic host-owned lifecycle fixture receipt, not a signature or
         // installation claim. Never copied into assembled publication packages.
