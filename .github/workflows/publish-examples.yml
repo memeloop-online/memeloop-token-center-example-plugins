@@ -306,7 +306,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Load the reviewed official installer and patched Cosign
+      - name: Load the reviewed official installer and Cosign
         run: |
           test -n "$ACTIONS_ID_TOKEN_REQUEST_TOKEN"
           test -n "$ACTIONS_ID_TOKEN_REQUEST_URL"

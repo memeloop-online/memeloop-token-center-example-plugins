@@ -59,7 +59,8 @@ function requireTrust() {
   assert.equal(trust.minimum_installer_contract_revision, trust.installer_source_revision);
   assert.match(trust.installer_digest ?? '', /^sha256:[0-9a-f]{64}$/);
   assert.match(trust.host_reference ?? '', /^ghcr\.io\/memeloop-online\/memeloop-token-center@sha256:[0-9a-f]{64}$/);
-  assert.match(trust.cosign_version ?? '', /^v\d+\.\d+\.\d+-mtc\.\d+$/);
+  assert.match(trust.cosign_version ?? '', /^v\d+\.\d+\.\d+(?:-mtc\.\d+)?$/);
+  assert.equal(trust.cosign_version, trust.cosign_version.trim());
   assert.match(trust.verification_run ?? '', /^https:\/\/github\.com\/memeloop-online\/memeloop-token-center\/actions\/runs\/[0-9]+$/);
   assert(Number.isSafeInteger(trust.release_artifact_id) && trust.release_artifact_id > 0);
   assert.equal(trust.release_artifact_name, `ghcr-release-${trust.host_source_revision}`);

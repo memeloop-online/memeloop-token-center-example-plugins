@@ -8,7 +8,7 @@
   "installer_digest": "sha256:b4174235ea276e8ee1c3e25782d27960f8796bd4f77d5cba8f58fdbc1c2ef53d",
   "installer_source_revision": "2e15bf752eebd44deea6c07ab0cd2709b50a5a75",
   "minimum_installer_contract_revision": "2e15bf752eebd44deea6c07ab0cd2709b50a5a75",
-  "cosign_version": "v3.1.3-mtc.4",
+  "cosign_version": "v3.1.4",
   "verification_run": "https://github.com/memeloop-online/memeloop-token-center/actions/runs/41377930661",
   "release_artifact_id": 13113630322,
   "release_artifact_name": "ghcr-release-2e15bf752eebd44deea6c07ab0cd2709b50a5a75",
