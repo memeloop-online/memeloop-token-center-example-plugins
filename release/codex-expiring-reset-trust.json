@@ -1,0 +1,17 @@
+{
+  "format_version": 1,
+  "status": "ready",
+  "host_repository": "memeloop-online/memeloop-token-center",
+  "host_source_revision": "00c3c44c5d2b6149964b7cb79b1478371b13404a",
+  "host_reference": "ghcr.io/memeloop-online/memeloop-token-center@sha256:22999482f3cd5fbc922f7820caf8f0af0cdd773f60d495d30484a4dbd99a6e90",
+  "host_verification_run": "https://github.com/memeloop-online/memeloop-token-center/actions/runs/41366249219",
+  "host_release_artifact_id": 13108916454,
+  "host_release_artifact_digest": "sha256:650c522aac402489eaecc5cc8c19a5a2633793236c94f9551e7250fba8f57e9e",
+  "installer_repository": "ghcr.io/memeloop-online/memeloop-token-center-plugin-installer",
+  "installer_digest": "sha256:a02dcdf177b6209bf69688abfac29d70bcbad0fc52c76365026aaf42aa2a6329",
+  "installer_source_revision": "00c3c44c5d2b6149964b7cb79b1478371b13404a",
+  "minimum_installer_contract_revision": "00c3c44c5d2b6149964b7cb79b1478371b13404a",
+  "cosign_version": "v3.1.4",
+  "installer_verification_run": "https://github.com/memeloop-online/memeloop-token-center/actions/runs/41366249219",
+  "plugin_source": "ghcr.io/memeloop-online/mtc-codex-expiring-reset"
+}
