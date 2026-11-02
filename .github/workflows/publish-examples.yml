@@ -6,6 +6,7 @@ on:
       - '.github/workflows/publish-examples.yml'
       - 'scripts/*publication*'
       - 'scripts/verify-policy-rewrite.mjs'
+      - 'scripts/verify-strategy-schema.mjs'
       - 'release/examples-*.json'
       - 'plugin-sources/soonest-reset/**'
       - 'plugin-sources/model-guard/**'
@@ -21,6 +22,7 @@ on:
       - '.github/workflows/publish-examples.yml'
       - 'scripts/*publication*'
       - 'scripts/verify-policy-rewrite.mjs'
+      - 'scripts/verify-strategy-schema.mjs'
       - 'release/examples-*.json'
       - 'plugin-sources/soonest-reset/**'
       - 'plugin-sources/model-guard/**'
@@ -59,6 +61,8 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24.18.0
+      - name: Verify strategy schema presentation contracts
+        run: node scripts/verify-strategy-schema.mjs
       - name: Verify successful immutable official host and installer CI
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -185,8 +189,8 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-  historical-host-compatibility:
-    name: exact policy + guard on production host 469c6dd
+  compatible-host-contract:
+    name: exact policy + guard on the official compatible host
     permissions:
       contents: read
       actions: read
@@ -208,42 +212,52 @@ jobs:
         with:
           name: policy-rewrite-component-candidate-${{ github.sha }}
           path: .compat-components
-      - name: Check out the immutable serving gateway source
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.18.0
+      - name: Resolve the reviewed official host and installer release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node scripts/example-publication.mjs resolve
+          node scripts/example-publication.mjs verify-pins
+      - name: Check out the official compatible host source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           repository: memeloop-online/memeloop-token-center
-          ref: 469c6dd5aff4c46aa19ad7f60cb7baf9c699db62
-          path: .historical-host
+          ref: ${{ env.HOST_SOURCE_REVISION }}
+          path: .compatible-host
           persist-credentials: false
-      - name: Check out the serving host's own immutable fixture
+      - name: Check out the compatible host supporting fixture
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           repository: memeloop-online/memeloop-token-center-example-plugins
-          ref: 21489f4fee6266de99fe7e258349468ce77af8bd
-          path: .historical-host/.plugin-examples
+          ref: ${{ env.HOST_FIXTURE_REVISION }}
+          path: .compatible-host/.plugin-examples
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
         with:
           toolchain: 1.95.0
-      - name: Verify exact historical host and run actual large component requests
+      - name: Verify exact compatible host and run actual large component requests
         env:
           MTC_EXAMPLE_PUBLICATION_ROOT: ${{ github.workspace }}/dist/examples/packages
-          MTC_EXAMPLE_MODEL_GUARD_PACKAGE: ${{ runner.temp }}/historical-model-guard
+          MTC_EXAMPLE_MODEL_GUARD_PACKAGE: ${{ runner.temp }}/compatible-model-guard
           MTC_EXAMPLE_PRE_GROWTH_POLICY_COMPONENT: ${{ github.workspace }}/.compat-components/policy-rewrite-before-growth.wasm
         run: |
-          test "$(git -C .historical-host rev-parse HEAD)" = 469c6dd5aff4c46aa19ad7f60cb7baf9c699db62
-          cmp wit/token-center.wit .historical-host/wit/token-center.wit
+          test "$(git -C .compatible-host rev-parse HEAD)" = "$HOST_SOURCE_REVISION"
+          test "$(git -C .compatible-host/.plugin-examples rev-parse HEAD)" = "$HOST_FIXTURE_REVISION"
+          cmp wit/token-center.wit .compatible-host/wit/token-center.wit
           mkdir -p "$MTC_EXAMPLE_MODEL_GUARD_PACKAGE"
           cp plugin-sources/model-guard/plugin.json "$MTC_EXAMPLE_MODEL_GUARD_PACKAGE/plugin.json"
           cp .compat-components/model-guard.wasm "$MTC_EXAMPLE_MODEL_GUARD_PACKAGE/plugin.wasm"
-          cp scripts/example-publication-host.rs .historical-host/tests/example_publication.rs
-          mv .historical-host "$RUNNER_TEMP/historical-publication-host"
-          cd "$RUNNER_TEMP/historical-publication-host"
+          cp scripts/example-publication-host.rs .compatible-host/tests/example_publication.rs
+          mv .compatible-host "$RUNNER_TEMP/compatible-publication-host"
+          cd "$RUNNER_TEMP/compatible-publication-host"
           cargo test --locked --all-features --test example_publication
 
   publish:
     name: sign and clean-install ${{ matrix.package }}
-    needs: [verify, historical-host-compatibility]
+    needs: [verify, compatible-host-contract]
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && github.ref_protected == true && github.repository == 'memeloop-online/memeloop-token-center-example-plugins'
     runs-on: ubuntu-latest
     timeout-minutes: 30

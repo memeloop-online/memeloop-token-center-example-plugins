@@ -7,13 +7,22 @@ import { readFile } from 'node:fs/promises';
 const wasmPath = process.argv[2];
 assert.ok(wasmPath, 'usage: node scripts/verify-policy-rewrite.mjs <core.wasm>');
 const manifest = JSON.parse(await readFile(new URL('../examples/plugins/policy-rewrite/plugin.json', import.meta.url), 'utf8'));
-assert.deepEqual(manifest.contributions.configuration, {
+// Presentation metadata is checked by verify-strategy-schema.mjs. Preserve the
+// exact behavioral schema assertion while allowing localized labels.
+function validationShape(value) {
+  if (Array.isArray(value)) return value.map(validationShape);
+  if (value === null || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value)
+    .filter(([key]) => !['title', 'description', 'x-i18n'].includes(key))
+    .map(([key, child]) => [key, validationShape(child)]));
+}
+assert.deepEqual(validationShape(manifest.contributions.configuration), {
   schema: {
     type: 'object',
     additionalProperties: false,
     required: ['enabled'],
     properties: {
-      enabled: { type: 'boolean', title: 'Enable fixture request rewrite for this tenant' },
+      enabled: { type: 'boolean' },
     },
   },
   default: { enabled: false },

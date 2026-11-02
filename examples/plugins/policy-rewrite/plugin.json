@@ -1,6 +1,6 @@
 {
   "id": "example-policy-rewrite",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "wit_version": "0.2.0",
   "wasm": "plugin.wasm",
   "capabilities": [],
@@ -11,15 +11,42 @@
       "schema": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["enabled"],
+        "required": [
+          "enabled"
+        ],
         "properties": {
           "enabled": {
             "type": "boolean",
-            "title": "Enable fixture request rewrite for this tenant"
+            "title": "Enable request rewrite",
+            "description": "Enable fixture request rewriting for this tenant.",
+            "x-i18n": {
+              "zh-CN": {
+                "title": "启用请求改写",
+                "description": "为当前租户启用开发测试环境的请求改写。"
+              },
+              "en": {
+                "title": "Enable request rewrite",
+                "description": "Enable fixture request rewriting for this tenant."
+              }
+            }
+          }
+        },
+        "title": "Development request rewrite",
+        "description": "Enable the example request rewrite for a controlled development fixture.",
+        "x-i18n": {
+          "zh-CN": {
+            "title": "开发请求改写",
+            "description": "为受控开发测试环境启用示例请求改写。"
+          },
+          "en": {
+            "title": "Development request rewrite",
+            "description": "Enable the example request rewrite for a controlled development fixture."
           }
         }
       },
-      "default": { "enabled": false }
+      "default": {
+        "enabled": false
+      }
     },
     "providers": [
       {

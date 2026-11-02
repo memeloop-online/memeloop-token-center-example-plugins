@@ -322,8 +322,8 @@ async fn policy_large_inputs_and_real_model_guard_chain() {
     );
 }
 
-// Reproduce the exact previously published component failure in CI on both
-// immutable hosts. This is a synthetic package regression, not live attribution.
+// Reproduce the previously published component's large-input failure
+// against the official compatible host using a synthetic request.
 #[tokio::test]
 async fn published_pre_growth_component_fails_large_default_off_input() {
     let (directory, fixed) = runtime("example-policy-rewrite").await;
@@ -344,11 +344,13 @@ async fn published_pre_growth_component_fails_large_default_off_input() {
     let failure = before_growth
         .apply_traffic(context(), &request)
         .unwrap_err();
-    assert!(
-        failure
-            .to_string()
-            .contains("plugin example-policy-rewrite execution failed")
-    );
+    assert!(matches!(
+        failure,
+        memeloop_token_center::error::AppError::Upstream {
+            code: "plugin_execution_failed",
+            ..
+        }
+    ));
     let decision = fixed.apply_traffic(context(), &request).unwrap();
     assert!(decision.allow);
     assert!(decision.request_json.is_none());
@@ -357,24 +359,22 @@ async fn published_pre_growth_component_fails_large_default_off_input() {
     let revisions = component_revisions(before_growth);
     let snapshot = revisions.pin().unwrap();
     for _ in 0..3 {
-        let failed = snapshot
+        let continued = snapshot
             .apply_traffic_with_config(context(), &request, &BTreeMap::new())
             .unwrap();
-        assert!(!failed.allow);
-        let diagnostic = format!("{failed:?}");
-        assert!(diagnostic.contains("example-policy-rewrite"));
-        assert!(diagnostic.contains("policy_execution_failed"));
+        assert!(continued.allow);
+        assert!(continued.request_json.is_none());
+        assert!(continued.model.is_none());
     }
     let mut another_tenant = context();
     another_tenant.tenant_id = "small-independent-tenant".into();
     let small = json!({"model":"requested-model", "input":"small"});
-    let blocked = snapshot
+    let continued = snapshot
         .apply_traffic_with_config(another_tenant.clone(), &small, &BTreeMap::new())
         .unwrap();
-    assert!(!blocked.allow);
-    let diagnostic = format!("{blocked:?}");
-    assert!(diagnostic.contains("example-policy-rewrite"));
-    assert!(diagnostic.contains("policy_circuit_open"));
+    assert!(continued.allow);
+    assert!(continued.request_json.is_none());
+    assert!(continued.model.is_none());
     assert!(
         fixed
             .apply_traffic(another_tenant.clone(), &small)

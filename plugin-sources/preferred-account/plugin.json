@@ -1,6 +1,6 @@
 {
   "id": "mtc-preferred-account",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "wit_version": "0.2.0",
   "wasm": "plugin.wasm",
   "capabilities": [],
@@ -11,19 +11,54 @@
       "schema": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["preferred_account_ids"],
+        "required": [
+          "preferred_account_ids"
+        ],
         "properties": {
           "preferred_account_ids": {
-            "title": "Preferred accounts, in priority order",
-            "description": "Only already-authorized healthy candidates are promoted. This does not read quota or reset times.",
+            "title": "Preferred accounts",
+            "description": "Select accounts from this group and arrange their order; accounts at the top are tried first.",
             "type": "array",
             "maxItems": 128,
             "uniqueItems": true,
-            "items": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[^\\u0000-\\u001f\\u007f]+$" }
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "x-i18n": {
+              "zh-CN": {
+                "title": "优先账号",
+                "description": "从本组账号中选择，并调整使用顺序；排在前面的账号优先尝试。"
+              },
+              "en": {
+                "title": "Preferred accounts",
+                "description": "Select accounts from this group and arrange their order; accounts at the top are tried first."
+              }
+            },
+            "x-resource-selector": {
+              "source": "group-accounts",
+              "ordered": true
+            }
+          }
+        },
+        "title": "Prefer selected accounts",
+        "description": "Try accounts in your chosen order; other available accounts remain eligible.",
+        "x-i18n": {
+          "zh-CN": {
+            "title": "优先使用指定账号",
+            "description": "按你设置的顺序优先尝试账号，其余可用账号继续参与分配。"
+          },
+          "en": {
+            "title": "Prefer selected accounts",
+            "description": "Try accounts in your chosen order; other available accounts remain eligible."
           }
         }
       },
-      "default": { "preferred_account_ids": [] }
+      "default": {
+        "preferred_account_ids": []
+      }
     }
   }
 }
