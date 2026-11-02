@@ -74,7 +74,13 @@ jobs:
           cargo test --locked --all-features --lib soonest_reset_real_gateway -- --ignored
           cargo test --locked --all-features --lib remaining_quota_real_gateway -- --ignored
           cargo test --locked --all-features --lib broken_group_configuration_continues_to_the_upstream
-          cargo test --locked --all-features --lib codex_background_action_real_component_worker_contract -- --ignored
+      - name: Exercise reset authority and idempotency through both databases
+        if: ${{ !cancelled() }}
+        working-directory: ${{ runner.temp }}/quota-candidate-host
+        env:
+          MTC_CODEX_EXPIRING_RESET_PACKAGE: ${{ github.workspace }}/dist/quota-management
+          MTC_TEST_POSTGRES_URL: postgres://token_center:token_center@127.0.0.1:5432/quota_contract
+        run: cargo test --locked --all-features --lib codex_background_action_real_component_worker_contract -- --ignored
       - uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
         if: always()
         with:
