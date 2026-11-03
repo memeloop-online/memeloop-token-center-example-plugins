@@ -139,7 +139,7 @@ export function activateOperatorUi({ React, Fluent, defineOperatorUiPackage }) {
         : result === 'accepted' ? '已使用一次'
           : operation?.settled_at ? '已核实' : '等待';
     async function toggle() {
-      if (writing.current || !data?.can_write || (needsVerification && !enabled)) return;
+      if (writing.current || !data?.can_write) return;
       writing.current = true; setSaving(true); setError(''); setSaved('');
       const expectedGeneration = generation.current;
       try {
@@ -168,7 +168,7 @@ export function activateOperatorUi({ React, Fluent, defineOperatorUiPackage }) {
             h(Fluent.Text, { style: styles.subdued }, '账号授权 · 每个账号单独开启，可随时关闭')),
           h(Fluent.Switch, {
             checked: enabled, label: saving ? '正在保存…' : data ? enabled ? '授权已开启' : '授权已关闭' : '授权待确认',
-            disabled: loading || saving || !data?.can_write || (!enabled && needsVerification),
+            disabled: loading || saving || !data?.can_write,
             onChange: toggle,
           })),
         data && !data.can_write && h(Notice, { intent: 'warning' }, '当前为只读模式。'),
@@ -257,7 +257,7 @@ export function activateOperatorUi({ React, Fluent, defineOperatorUiPackage }) {
   return defineOperatorUiPackage({
     apiVersion: 'operator-ui-package-v1',
     pluginId: PLUGIN_ID,
-    compatiblePluginVersions: ['1.1.0'],
+    compatiblePluginVersions: ['1.1.1'],
     components: { workspace: Workspace },
   });
 }
