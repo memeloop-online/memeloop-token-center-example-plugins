@@ -3,17 +3,17 @@
 export function createPresentation(React, Fluent) {
   const h = React.createElement;
   const styles = {
-    page: { display: 'grid', gap: 24, maxWidth: 1080, margin: '0 auto', padding: '24px 16px' },
-    row: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 },
-    stack: { display: 'grid', gap: 12, minWidth: 0 },
-    metrics: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16 },
+    page: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 24, minWidth: 0, width: '100%', maxWidth: 1080, boxSizing: 'border-box', margin: '0 auto', padding: '24px 16px' },
+    row: { minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 },
+    stack: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 12, minWidth: 0 },
+    metrics: { display: 'grid', minWidth: 0, gridTemplateColumns: 'repeat(auto-fit, minmax(min(180px, 100%), 1fr))', gap: 16 },
     metric: { display: 'grid', gap: 8, padding: 20, minWidth: 0 },
     subdued: { color: Fluent.tokens.colorNeutralForeground2 },
   };
 
   function Notice({ intent = 'info', children }) {
-    return h(Fluent.MessageBar, { intent },
-      h(Fluent.MessageBarBody, null, children));
+    return h(Fluent.MessageBar, { intent, style: { minWidth: 0, overflowWrap: 'anywhere' } },
+      h(Fluent.MessageBarBody, { style: { minWidth: 0 } }, children));
   }
 
   function Metric({ label, value, note }) {
@@ -32,7 +32,7 @@ export function createPresentation(React, Fluent) {
   }
 
   function Empty({ title, description }) {
-    return h(Fluent.Card, { appearance: 'outline', style: { padding: 32, textAlign: 'center' } },
+    return h(Fluent.Card, { appearance: 'outline', style: { padding: 32, minWidth: 0, textAlign: 'center' } },
       h(Fluent.Text, { as: 'h2', size: 500, weight: 'semibold' }, title),
       h(Fluent.Text, { style: styles.subdued }, description));
   }
@@ -161,10 +161,10 @@ export function activateOperatorUi({ React, Fluent, defineOperatorUiPackage }) {
       }
     }
     return h('section', { style: styles.stack, 'aria-label': `${account.name}的自动使用设置`, 'aria-busy': loading || saving },
-      h(Fluent.Card, { appearance: 'outline', style: { padding: 24 } },
+      h(Fluent.Card, { appearance: 'outline', style: { padding: 24, minWidth: 0 } },
         h('div', { style: styles.row },
-          h('div', { style: styles.stack },
-            h(Fluent.Text, { as: 'h2', size: 500, weight: 'semibold' }, account.name),
+          h('div', { style: { ...styles.stack, flex: '1 1 220px' } },
+            h(Fluent.Text, { as: 'h2', size: 500, weight: 'semibold', style: { margin: 0, minWidth: 0, overflowWrap: 'anywhere' } }, account.name),
             h(Fluent.Text, { style: styles.subdued }, '账号授权 · 每个账号单独开启，可随时关闭')),
           h(Fluent.Switch, {
             checked: enabled, label: saving ? '正在保存…' : data ? enabled ? '授权已开启' : '授权已关闭' : '授权待确认',
@@ -176,7 +176,7 @@ export function activateOperatorUi({ React, Fluent, defineOperatorUiPackage }) {
       loading && h(Fluent.Spinner, { size: 'small', label: '正在读取授权与手动重置次数…' }),
       error && h(Notice, { intent: 'error' }, error),
       saved && h(Notice, { intent: 'success' }, saved),
-      uncertain && h(Notice, { intent: 'warning' }, '上次使用结果待核实，自动使用已暂停。请打开上游账号查看重置记录。'),
+      uncertain && h(Notice, { intent: 'warning' }, '上次重置结果正在核实，可在上游账号查看重置记录。'),
       !uncertain && needsVerification && h(Notice, null, '已提交一次使用请求，正在核实结果。'),
       (quotaError || (quota && (!summary.reliable || !fresh))) && h(Notice, { intent: 'warning' }, '手动重置次数信息待确认。系统会重新检查可用次数和到期时间。'),
       h('div', { style: styles.metrics },
@@ -184,7 +184,7 @@ export function activateOperatorUi({ React, Fluent, defineOperatorUiPackage }) {
         h(Metric, { label: '最近一次到期', value: expiry ? date(expiry) : fresh && summary.count === 0 ? '0 次' : '待刷新' }),
         h(Metric, { label: '预计开始执行', value: !data ? '待确认授权' : !enabled ? '已关闭' : needsVerification ? '结果核实中' : blocked ? '待检查' : expiry ? date(expiry - 600_000) : '到期时间待刷新', note: '在到期前 10 分钟内检查并执行' }),
         h(Metric, { label: '最后结果', value: data ? outcome : '待刷新', note: grant?.last_attempt_at ? `最近检查 ${date(grant.last_attempt_at)}` : '开启后开始自动检查' })),
-      h(Fluent.Card, { appearance: 'outline', style: { padding: 24 } },
+      h(Fluent.Card, { appearance: 'outline', style: { padding: 24, minWidth: 0 } },
         h('div', { style: styles.row },
           h(Fluent.Text, { as: 'h2', size: 400, weight: 'semibold' }, '重置记录'),
           h(Fluent.Button, { appearance: 'subtle', onClick: () => api.navigate('upstreams'), disabled: typeof api.navigate !== 'function' }, '打开上游账号')),
@@ -248,7 +248,7 @@ export function activateOperatorUi({ React, Fluent, defineOperatorUiPackage }) {
                 placeholder: '搜索并选择账号', value: search || account?.name || '', selectedOptions: account ? [account.id] : [],
                 onChange: event => setSearch(event.target.value),
                 onOptionSelect: (_event, value) => { setSelected(value.optionValue ?? ''); setSearch(''); },
-                style: { width: '100%', maxWidth: 520 },
+                style: { width: '100%', maxWidth: 520, minWidth: 0, boxSizing: 'border-box' },
               }, filtered.map(value => h(Fluent.Option, { key: value.id, value: value.id, text: value.name }, value.name)),
               filtered.length === 0 && h(Fluent.Option, { disabled: true, value: '__empty' }, '没有匹配的账号'))),
             account ? h(AccountDetails, { key: `${tenant}:${account.id}`, account, api, tenant, locale })
@@ -257,7 +257,7 @@ export function activateOperatorUi({ React, Fluent, defineOperatorUiPackage }) {
   return defineOperatorUiPackage({
     apiVersion: 'operator-ui-package-v1',
     pluginId: PLUGIN_ID,
-    compatiblePluginVersions: ['1.1.1'],
+    compatiblePluginVersions: ['1.1.2'],
     components: { workspace: Workspace },
   });
 }

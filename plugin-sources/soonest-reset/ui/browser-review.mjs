@@ -18,7 +18,7 @@ const pkg=activateOperatorUi({React,Fluent,defineOperatorUiPackage:x=>x});
 const mode=new URLSearchParams(location.search).get('mode');
 window.requests=[];window.navigations=[];
 let grant=null;
-const operation=mode==='unknown'||mode==='accepted'?{id:'fixture-operation',upstream_account_id:'fixture-account',state:mode,settled_at:null}:null;
+const operation=mode==='unknown'||mode==='accepted'||mode==='long-name'?{id:'fixture-operation',upstream_account_id:'fixture-account',state:mode==='long-name'?'unknown':mode,settled_at:null}:null;
 const api={navigate:(...args)=>window.navigations.push(args),requestApi:async request=>{
  window.requests.push({path:request.path,method:request.method||'GET',body:request.body});
  const url=new URL(request.path,location.origin);
@@ -27,7 +27,7 @@ const api={navigate:(...args)=>window.navigations.push(args),requestApi:async re
  if(url.pathname==='/internal/v1/upstreams'){
   if(mode==='error')throw Object.assign(new Error('Forbidden'),{status:403});
   if(mode==='empty')return [];
-  return [{id:'fixture-account',name:'Codex 研发账号',driver:'openai-codex',tenant_external_id:tenant},{id:'fixture-other',name:'Codex 备用账号',driver:'openai-codex',tenant_external_id:tenant},{id:'ignored',name:'Other provider',driver:'other'}];
+  return [{id:'fixture-account',name:mode==='long-name'?'csil.ai.automation@gmail.com':'Codex 研发账号',driver:'openai-codex',tenant_external_id:tenant},{id:'fixture-other',name:'Codex 备用账号',driver:'openai-codex',tenant_external_id:tenant},{id:'ignored',name:'Other provider',driver:'other'}];
  }
  if(url.pathname.endsWith('/quota')){
   if(mode==='quota-error')throw new Error('unavailable');
@@ -65,10 +65,10 @@ try {
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
   const url = `http://127.0.0.1:${server.address().port}`;
   async function open(mode = '') { await page.goto(`${url}/?mode=${mode}`); }
-  async function choose() {
+  async function choose(name = 'Codex 研发账号') {
     await page.getByRole('combobox').click();
-    await page.getByRole('combobox').fill('研发');
-    await page.getByRole('option', { name: 'Codex 研发账号', exact: true }).click();
+    await page.getByRole('combobox').fill(name);
+    await page.getByRole('option', { name, exact: true }).click();
     await page.getByRole('button', { name: '刷新状态', exact: true }).waitFor();
     await page.waitForFunction(() => !document.querySelector('section[aria-busy="true"]'));
   }
@@ -100,7 +100,7 @@ try {
   await screenshot('readonly');
   await open('unknown'); await choose();
   assert.equal(await page.getByRole('switch').isEnabled(), true);
-  await page.getByText('上次使用结果待核实，自动使用已暂停。请打开上游账号查看重置记录。', { exact: true }).waitFor();
+  await page.getByText('上次重置结果正在核实，可在上游账号查看重置记录。', { exact: true }).waitFor();
   await page.getByRole('button', { name: '打开上游账号' }).click();
   assert.deepEqual(await page.evaluate(() => window.navigations), [['upstreams']]);
   await screenshot('unknown-result');
@@ -133,6 +133,15 @@ try {
   checks.push('quota failure, empty accounts, read permissions');
   await page.setViewportSize({ width: 390, height: 844 });
   await open(); await choose(); await screenshot('mobile');
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    await open('long-name'); await choose('csil.ai.automation@gmail.com');
+    await page.getByText('上次重置结果正在核实，可在上游账号查看重置记录。', { exact: true }).waitFor();
+    await page.getByRole('switch').click();
+    await page.getByText('授权已开启', { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+    await screenshot(`long-account-${width}`);
+  }
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
   assert.equal(await page.evaluate(() => window.requests.some(r => r.path.includes('/confirm') || r.path.includes('/prepare') || r.path.includes('/inference/'))), false);
   assert.deepEqual(errors, []);
