@@ -1,6 +1,6 @@
 {
   "id": "mtc-soonest-reset",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "wit_version": "0.2.0",
   "wasm": "plugin.wasm",
   "capabilities": [
@@ -98,15 +98,15 @@
             }
           }
         },
-        "title": "Quota allocation",
+        "title": "Allocate by account quota",
         "description": "Distribute requests using available account quota.",
         "x-i18n": {
           "zh-CN": {
-            "title": "额度分配",
+            "title": "按账号额度分配",
             "description": "按账号额度分配请求。"
           },
           "en": {
-            "title": "Quota allocation",
+            "title": "Allocate by account quota",
             "description": "Distribute requests using available account quota."
           }
         },
@@ -132,8 +132,8 @@
     "configuration": {
       "schema": {
         "type": "object",
-        "title": "额度管理",
-        "description": "为已开启的 Codex 账号，在手动重置次数到期前 10 分钟自动使用一次。",
+        "title": "自动使用手动重置次数",
+        "description": "在账号的重置设置中开启自动使用。",
         "additionalProperties": false,
         "properties": {}
       },
@@ -141,18 +141,13 @@
     },
     "operator_ui": [
       {
-        "id": "quota-management",
-        "slot": "operator.sidebar.tab",
-        "category": {
-          "id": "automation",
-          "label": "自动化"
-        },
-        "route": "quota-management",
-        "label": "额度管理",
+        "id": "account-reset-settings",
+        "slot": "operator.upstream-account.reset-settings",
+        "label": "自动使用手动重置次数",
         "icon": "activity",
         "renderer": "component_v1",
         "module_entry": "ui/quota-management.mjs",
-        "component_id": "workspace"
+        "component_id": "account-reset-settings"
       }
     ]
   }
