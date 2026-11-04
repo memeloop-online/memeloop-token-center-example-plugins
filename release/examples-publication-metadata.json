@@ -1,24 +1,24 @@
 {
   "format_version": 1,
-  "verification_run": "https://github.com/memeloop-online/memeloop-token-center/actions/runs/41504750315",
-  "artifact_name": "ghcr-release-4ea0a1b74a54f2a2b89689f13a5e57111d208438",
-  "artifact_digest": "sha256:8727eaa3dac29d610219227cc5801f56d0c59cf1c20aa84058e9ff0fbb1e0c55",
+  "verification_run": "https://github.com/memeloop-online/memeloop-token-center/actions/runs/41811114080",
+  "artifact_name": "ghcr-release-1368aae3569989bf268af1c41e2a9c2291f8a36b",
+  "artifact_digest": "sha256:260cc3bb3fe1b0cf1e0992e3ce476d71363367ca85d2f8e59a1535ba52db762d",
   "release_manifest": [
     {
       "schema_version": 1,
       "image": "ghcr.io/memeloop-online/memeloop-token-center",
-      "tag": "sha-4ea0a1b74a54f2a2b89689f13a5e57111d208438",
-      "digest": "sha256:b02ca129881433966863083dc7565cfa0d4e96c7016bd079228af6460a5e9b16",
-      "revision": "4ea0a1b74a54f2a2b89689f13a5e57111d208438",
-      "reference": "ghcr.io/memeloop-online/memeloop-token-center@sha256:b02ca129881433966863083dc7565cfa0d4e96c7016bd079228af6460a5e9b16"
+      "tag": "sha-1368aae3569989bf268af1c41e2a9c2291f8a36b",
+      "digest": "sha256:0128461b759a605fa21916178bbf164930a91bacf74f749d45a57e4a9706c09f",
+      "revision": "1368aae3569989bf268af1c41e2a9c2291f8a36b",
+      "reference": "ghcr.io/memeloop-online/memeloop-token-center@sha256:0128461b759a605fa21916178bbf164930a91bacf74f749d45a57e4a9706c09f"
     },
     {
       "schema_version": 1,
       "image": "ghcr.io/memeloop-online/memeloop-token-center-plugin-installer",
-      "tag": "sha-4ea0a1b74a54f2a2b89689f13a5e57111d208438",
-      "digest": "sha256:eab3ea54d26bc04cf8fabfbea4e485f27ec5921cea0c9ebed3a8a4164ff73770",
-      "revision": "4ea0a1b74a54f2a2b89689f13a5e57111d208438",
-      "reference": "ghcr.io/memeloop-online/memeloop-token-center-plugin-installer@sha256:eab3ea54d26bc04cf8fabfbea4e485f27ec5921cea0c9ebed3a8a4164ff73770"
+      "tag": "sha-1368aae3569989bf268af1c41e2a9c2291f8a36b",
+      "digest": "sha256:1acb139721529b746ff188cce819b964f28a8f03a0eee1c3a39f634f104e0218",
+      "revision": "1368aae3569989bf268af1c41e2a9c2291f8a36b",
+      "reference": "ghcr.io/memeloop-online/memeloop-token-center-plugin-installer@sha256:1acb139721529b746ff188cce819b964f28a8f03a0eee1c3a39f634f104e0218"
     }
   ]
 }
