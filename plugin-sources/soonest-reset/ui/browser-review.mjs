@@ -16,36 +16,39 @@ import * as Fluent from '@fluentui/react-components';
 import {activateOperatorUi} from './plugin-sources/soonest-reset/ui/quota-management.mjs';
 const pkg=activateOperatorUi({React,Fluent,defineOperatorUiPackage:x=>x});
 const mode=new URLSearchParams(location.search).get('mode');
-window.requests=[];window.navigations=[];
-let grant=null;
-const operation=mode==='unknown'||mode==='accepted'||mode==='long-name'?{id:'fixture-operation',upstream_account_id:'fixture-account',state:mode==='long-name'?'unknown':mode,settled_at:null}:null;
-const api={navigate:(...args)=>window.navigations.push(args),requestApi:async request=>{
+window.requests=[];
+const grants=new Map();
+const grantFor=(id,tenant,enabled,revision)=>({plugin_id:'mtc-soonest-reset',tenant_external_id:tenant,upstream_account_id:id,enabled,revision,last_attempt_at:null,last_result:null});
+if(mode==='configured')grants.set('review-tenant:fixture-account',grantFor('fixture-account','review-tenant',true,8));
+const api={requestApi:async request=>{
  window.requests.push({path:request.path,method:request.method||'GET',body:request.body});
  const url=new URL(request.path,location.origin);
  const tenant=url.searchParams.get('tenant_external_id');
- if(tenant!=='review-tenant'&&tenant!=='other-tenant')throw new Error('Missing tenant');
- if(url.pathname==='/internal/v1/upstreams'){
-  if(mode==='error')throw Object.assign(new Error('Forbidden'),{status:403});
-  if(mode==='empty')return [];
-  return [{id:'fixture-account',name:mode==='long-name'?'csil.ai.automation@gmail.com':'Codex 研发账号',driver:'openai-codex',tenant_external_id:tenant},{id:'fixture-other',name:'Codex 备用账号',driver:'openai-codex',tenant_external_id:tenant},{id:'ignored',name:'Other provider',driver:'other'}];
- }
- if(url.pathname.endsWith('/quota')){
-  if(mode==='quota-error')throw new Error('unavailable');
-  return {contract_version:'upstream_quota_v1',upstream_account_id:url.pathname.includes('fixture-other')?'fixture-other':'fixture-account',tenant_external_id:tenant,status:'ready',freshness:'fresh',stale:false,stale_after:Date.now()+600000,observed_at:Date.now(),reset_capability:{available_credits:2,credit_error_code:null},reset_credits:[{status:'available',granted_at:Date.now()-60000,expires_at:Date.now()+1200000},{status:'available',granted_at:Date.now()-60000,expires_at:Date.now()+86400000}]};
- }
- if(url.pathname.includes('/background-actions/')){
-  if(request.method==='PUT'){
+ const id=url.pathname.split('/').at(-1);
+ if(!['review-tenant','other-tenant'].includes(tenant)||!['fixture-account','fixture-other'].includes(id)
+   ||!url.pathname.startsWith('/internal/v1/plugins/mtc-soonest-reset/background-actions/'))throw new Error('Unexpected request');
+ if(mode==='loading')await new Promise(resolve=>window.finishLoading=resolve);
+ if(mode==='error')throw Object.assign(new Error('Forbidden'),{status:403});
+ const key=tenant+':'+id;
+ if(request.method==='PUT'){
    if(mode==='conflict')throw Object.assign(new Error('Conflict'),{status:409});
+   if(mode==='save-unknown')throw new Error('Timeout');
    if(mode==='readonly')throw new Error('Unexpected write in readonly');
-   grant={plugin_id:'mtc-soonest-reset',tenant_external_id:tenant,upstream_account_id:'fixture-account',enabled:request.body.enabled,revision:(grant?.revision||0)+1,last_attempt_at:null,last_result:null};
-  }
-  return {grant,can_write:mode!=='readonly',operation};
+   const previous=grants.get(key);
+   if(request.body.expected_revision!==(previous?.revision||0))throw new Error('Wrong revision');
+   grants.set(key,grantFor(id,tenant,request.body.enabled,(previous?.revision||0)+1));
  }
- throw new Error('Unexpected request');
+ return {grant:grants.get(key)||null,can_write:mode!=='readonly',operation:['unknown','accepted'].includes(mode)?{id:'fixture-operation',upstream_account_id:id,state:mode,settled_at:null}:null};
 }};
 const view=createRoot(document.getElementById('root'));
-function render(tenantExternalId='review-tenant'){view.render(React.createElement(Fluent.FluentProvider,{theme:Fluent.webLightTheme},React.createElement(pkg.components.workspace,{api,tenantExternalId,locale:'zh-CN'})));}
-window.changeTenant=()=>render('other-tenant');render();
+function render(tenantExternalId='review-tenant',id='fixture-account'){
+ const context=mode==='missing-context'?{}:{upstreamAccount:{id,name:'Codex 研发账号',provider:mode==='other-provider'?'other':'openai-codex',tenantExternalId:mode==='wrong-tenant'?'wrong':tenantExternalId},
+   quotaSnapshot:mode==='quota-error'?undefined:{contract_version:'upstream_quota_v1',upstream_account_id:id,tenant_external_id:tenantExternalId,status:'ready',freshness:'fresh',stale:false,stale_after:Date.now()+600000,observed_at:Date.now(),reset_capability:{available_credits:2,credit_error_code:null},reset_credits:[{status:'available',granted_at:Date.now()-60000,expires_at:Date.now()+1200000}]}};
+ view.render(React.createElement(Fluent.FluentProvider,{theme:Fluent.webLightTheme},React.createElement('main',{style:{padding:16,maxWidth:720,margin:'auto'}},
+   React.createElement('h2',null,'Codex 研发账号'),React.createElement('section',{'aria-label':'额度重置'},React.createElement('h3',null,'额度重置'),
+   mode==='absent'?null:React.createElement(pkg.components['account-reset-settings'],{api,tenantExternalId,context,locale:mode==='english'?'en':'zh-CN'})))));
+}
+window.changeTenant=()=>render('other-tenant');window.changeAccount=()=>render('review-tenant','fixture-other');render();
 `;
 const output = await build({ stdin: { contents: fixture, resolveDir: root, loader: 'js' }, bundle: true, write: false, format: 'esm', platform: 'browser' });
 const js = output.outputFiles[0].text;
@@ -65,87 +68,83 @@ try {
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
   const url = `http://127.0.0.1:${server.address().port}`;
   async function open(mode = '') { await page.goto(`${url}/?mode=${mode}`); }
-  async function choose(name = 'Codex 研发账号') {
-    await page.getByRole('combobox').click();
-    await page.getByRole('combobox').fill(name);
-    await page.getByRole('option', { name, exact: true }).click();
+  async function ready() {
     await page.getByRole('button', { name: '刷新状态', exact: true }).waitFor();
-    await page.waitForFunction(() => !document.querySelector('section[aria-busy="true"]'));
+    await page.waitForFunction(() => !document.querySelector('[data-account-reset-settings][aria-busy="true"]'));
   }
   async function screenshot(name) { await page.screenshot({ path: `${artifact}/${name}.png`, fullPage: true, animations: 'disabled' }); }
-  await open();
-  await choose();
-  assert.equal(await page.getByText('2 次', { exact: true }).count(), 1);
+  await open(); await ready();
+  assert.equal(await page.getByRole('combobox').count(), 0);
+  assert.equal(await page.getByRole('heading', { level: 1 }).count(), 0);
+  assert.equal(await page.getByRole('navigation').count(), 0);
+  assert.equal(await page.getByRole('region', { name: '额度重置' }).getByRole('switch').count(), 1);
   assert.equal(await page.getByRole('switch').isChecked(), false);
-  await page.getByText('开启后，在手动重置次数到期前 10 分钟自动使用一次。', { exact: true }).waitFor();
   assert.equal(await page.evaluate(() => window.requests.some(r => r.method !== 'GET')), false);
   await screenshot('desktop-disabled');
   await page.getByRole('switch').click();
-  await page.getByText('已开启此账号的自动使用授权。', { exact: true }).waitFor();
-  assert.equal(await page.getByRole('switch').isChecked(), true);
+  await page.getByText('自动使用已开启', { exact: true }).waitFor();
   assert.deepEqual(await page.evaluate(() => window.requests.find(r => r.method === 'PUT').body), { enabled: true, expected_revision: 0 });
   await screenshot('desktop-enabled');
   await page.getByRole('switch').click();
-  await page.getByText('已关闭此账号的自动使用授权。', { exact: true }).waitFor();
-  assert.equal(await page.getByRole('switch').isChecked(), false);
+  await page.getByText('自动使用已关闭', { exact: true }).waitFor();
   assert.deepEqual(await page.evaluate(() => window.requests.filter(r => r.method === 'PUT').at(-1).body), { enabled: false, expected_revision: 1 });
-  checks.push('search, explicit opt-in, optimistic revision, opt-out');
+  await page.evaluate(() => window.changeAccount());
+  await page.waitForFunction(() => document.querySelector('[data-account-reset-settings]')?.getAttribute('data-account-reset-settings') === 'fixture-other'); await ready();
+  await page.getByRole('switch').click();
+  await page.getByText('自动使用已开启', { exact: true }).waitFor();
+  assert.match(await page.evaluate(() => window.requests.filter(r => r.method === 'PUT').at(-1).path), /background-actions\/fixture-other\?/);
+  assert.deepEqual(await page.evaluate(() => window.requests.filter(r => r.method === 'PUT').at(-1).body), { enabled: true, expected_revision: 0 });
   await page.evaluate(() => window.changeTenant());
-  await page.getByText('选择一个账号查看设置', { exact: true }).waitFor();
-  assert.equal(await page.getByRole('switch').count(), 0);
-  checks.push('tenant transition clears selection and grant');
-  await open('readonly'); await choose();
+  await page.waitForFunction(() => window.requests.some(r => r.path.includes('tenant_external_id=other-tenant'))); await ready();
+  assert.equal(await page.getByRole('switch').isChecked(), false);
+  checks.push('inline settings, current account and tenant scope, revision checks, no account picker or navigation');
+  await open('configured'); await ready();
+  assert.equal(await page.getByRole('switch').isChecked(), true);
+  await page.getByRole('switch').click();
+  await page.getByText('自动使用已关闭', { exact: true }).waitFor();
+  assert.deepEqual(await page.evaluate(() => window.requests.filter(r => r.method === 'PUT').at(-1).body), { enabled: false, expected_revision: 8 });
+  await open('readonly'); await ready();
   assert.equal(await page.getByRole('switch').isDisabled(), true);
-  await page.getByText('当前为只读模式。', { exact: true }).waitFor();
-  await screenshot('readonly');
-  await open('unknown'); await choose();
-  assert.equal(await page.getByRole('switch').isEnabled(), true);
-  await page.getByText('上次重置结果正在核实，可在上游账号查看重置记录。', { exact: true }).waitFor();
-  await page.getByRole('button', { name: '打开上游账号' }).click();
-  assert.deepEqual(await page.evaluate(() => window.navigations), [['upstreams']]);
-  await screenshot('unknown-result');
-  await page.getByRole('switch').click();
-  await page.getByText('授权已开启', { exact: true }).waitFor();
-  await page.getByRole('switch').click();
-  await page.getByText('授权已关闭', { exact: true }).waitFor();
-  assert.deepEqual(await page.evaluate(() => window.requests.filter(r => r.method === 'PUT').map(r => r.body)), [{enabled:true,expected_revision:0},{enabled:false,expected_revision:1}]);
-  assert.equal(await page.evaluate(() => window.requests.some(r => r.path.includes('quota-reset'))), false);
-  checks.push('unknown operation preserves independent enable/disable authority and its pending-result notice');
-  await open('accepted'); await choose();
-  assert.ok(await page.getByText('已使用一次', { exact: true }).count() > 0);
-  assert.equal(await page.getByRole('switch').isEnabled(), true);
-  await page.getByRole('switch').click();
-  await page.getByText('授权已开启', { exact: true }).waitFor();
-  await page.getByRole('switch').click();
-  await page.getByText('授权已关闭', { exact: true }).waitFor();
-  assert.deepEqual(await page.evaluate(() => window.requests.filter(r => r.method === 'PUT').map(r => r.body)), [{enabled:true,expected_revision:0},{enabled:false,expected_revision:1}]);
-  assert.equal(await page.evaluate(() => window.requests.some(r => r.path.includes('quota-reset'))), false);
-  await screenshot('accepted-result');
-  await open('conflict'); await choose(); await page.getByRole('switch').click();
-  await page.getByText('授权已被其他操作更新。请刷新后确认当前设置。', { exact: true }).waitFor();
-  assert.equal(await page.getByRole('switch').isDisabled(), true);
-  checks.push('409 invalidates stale grant');
-  await open('quota-error'); await choose();
-  await page.getByText('手动重置次数信息待确认。系统会重新检查可用次数和到期时间。', { exact: true }).waitFor();
-  await screenshot('quota-unavailable');
-  await open('empty'); await page.getByText('暂无 Codex 账号', { exact: true }).waitFor(); await screenshot('empty');
-  await open('error'); await page.getByRole('button', { name: '重试', exact: true }).waitFor(); await screenshot('permission-error');
-  checks.push('quota failure, empty accounts, read permissions');
-  await page.setViewportSize({ width: 390, height: 844 });
-  await open(); await choose(); await screenshot('mobile');
-  for (const width of [390, 1280]) {
-    await page.setViewportSize({ width, height: 900 });
-    await open('long-name'); await choose('csil.ai.automation@gmail.com');
-    await page.getByText('上次重置结果正在核实，可在上游账号查看重置记录。', { exact: true }).waitFor();
-    await page.getByRole('switch').click();
-    await page.getByText('授权已开启', { exact: true }).waitFor();
-    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
-    await screenshot(`long-account-${width}`);
+  await page.getByText('当前仅可查看此账号的自动使用设置。', { exact: true }).waitFor(); await screenshot('readonly');
+  for (const mode of ['unknown', 'accepted']) {
+    await open(mode); await ready();
+    await page.getByText(mode === 'unknown' ? '上次重置结果尚未确认，系统会继续核实。请勿重复重置。' : '已提交一次重置，正在核实结果。', { exact: true }).waitFor();
+    await page.getByRole('switch').click(); await page.getByText('自动使用已开启', { exact: true }).waitFor();
+    await page.getByRole('switch').click(); await page.getByText('自动使用已关闭', { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => window.requests.some(r => r.method === 'POST')), false);
+    await screenshot(mode+'-result');
   }
-  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
-  assert.equal(await page.evaluate(() => window.requests.some(r => r.path.includes('/confirm') || r.path.includes('/prepare') || r.path.includes('/inference/'))), false);
+  await open('conflict'); await ready(); await page.getByRole('switch').click();
+  await page.getByText('设置已被其他操作更新。请刷新状态后确认。', { exact: true }).waitFor();
+  assert.equal(await page.getByRole('switch').isDisabled(), true);
+  await open('save-unknown'); await ready(); await page.getByRole('switch').click();
+  await page.getByText('尚未确认设置是否保存成功。请刷新状态后确认，再继续修改。', { exact: true }).waitFor();
+  assert.equal(await page.getByRole('switch').isDisabled(), true);
+  checks.push('configured grant preserved, read-only permissions, unknown and accepted result handling, conflict and uncertain save recovery');
+  await open('quota-error'); await ready();
+  assert.equal(await page.getByRole('switch').isEnabled(), true);
+  await page.getByText('次数或到期时间暂不可用，系统会在执行前重新检查。', { exact: true }).waitFor(); await screenshot('quota-unavailable');
+  await open('error'); await ready();
+  assert.equal(await page.getByRole('switch').isDisabled(), true); await screenshot('permission-error');
+  await open('loading'); await page.getByText('正在读取自动使用设置…', { exact: true }).waitFor();
+  assert.equal(await page.getByRole('switch').isDisabled(), true); await screenshot('loading');
+  await page.evaluate(() => window.finishLoading()); await ready();
+  for (const mode of ['absent', 'missing-context', 'wrong-tenant', 'other-provider']) {
+    await open(mode); await page.getByRole('heading', { name: '额度重置', exact: true }).waitFor();
+    assert.equal(await page.getByRole('switch').count(), 0);
+    assert.deepEqual(await page.evaluate(() => window.requests), []);
+  }
+  await open('english'); await page.getByRole('button', { name: 'Refresh status', exact: true }).waitFor();
+  assert.equal(await page.getByRole('switch', { name: /Automatically use a manual reset credit/ }).count(), 1);
+  checks.push('loading, failed read, unavailable quota, absent plugin, invalid context, unsupported provider, English');
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({ width, height: 900 }); await open('unknown'); await ready();
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+    await screenshot(`inline-${width}`);
+  }
+  assert.equal(await page.evaluate(() => window.requests.some(r => r.method === 'POST' || !r.path.includes('/background-actions/'))), false);
   assert.deepEqual(errors, []);
-  checks.push('mobile no overflow, no consume or inference requests, no browser errors');
+  checks.push('desktop and mobile no overflow; no quota refetch, reset consumption, or inference');
   writeFileSync(`${artifact}/evidence.json`, JSON.stringify({ fixtureOnly: true, realConsume: false, checks }, null, 2));
 } catch (error) {
   if (page) {

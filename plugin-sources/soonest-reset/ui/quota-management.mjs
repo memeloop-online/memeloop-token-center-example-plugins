@@ -1,53 +1,43 @@
-// All presentation primitives come from the authenticated operator host.
-// Presentation uses account names, scoped summaries and host-provided status.
-export function createPresentation(React, Fluent) {
-  const h = React.createElement;
-  const styles = {
-    page: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 24, minWidth: 0, width: '100%', maxWidth: 1080, boxSizing: 'border-box', margin: '0 auto', padding: '24px 16px' },
-    row: { minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 },
-    stack: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 12, minWidth: 0 },
-    metrics: { display: 'grid', minWidth: 0, gridTemplateColumns: 'repeat(auto-fit, minmax(min(180px, 100%), 1fr))', gap: 16 },
-    metric: { display: 'grid', gap: 8, padding: 20, minWidth: 0 },
-    subdued: { color: Fluent.tokens.colorNeutralForeground2 },
-  };
-
-  function Notice({ intent = 'info', children }) {
-    return h(Fluent.MessageBar, { intent, style: { minWidth: 0, overflowWrap: 'anywhere' } },
-      h(Fluent.MessageBarBody, { style: { minWidth: 0 } }, children));
-  }
-
-  function Metric({ label, value, note }) {
-    return h(Fluent.Card, { appearance: 'outline', style: styles.metric },
-      h(Fluent.Text, { size: 200, style: styles.subdued }, label),
-      h(Fluent.Text, { size: 500, weight: 'semibold', style: { overflowWrap: 'anywhere' } }, value),
-      note && h(Fluent.Text, { size: 200, style: styles.subdued }, note));
-  }
-
-  function Intro() {
-    return h('header', { style: styles.stack },
-      h(Fluent.Badge, { appearance: 'tint', color: 'brand', style: { justifySelf: 'start' } }, 'Codex · 额度管理'),
-      h(Fluent.Text, { as: 'h1', size: 700, weight: 'semibold', style: { margin: 0 } }, '额度管理'),
-      h(Fluent.Text, { style: styles.subdued },
-        '按额度分配 Codex 请求，并在已授权账号的手动重置次数到期前 10 分钟自动使用一次。'));
-  }
-
-  function Empty({ title, description }) {
-    return h(Fluent.Card, { appearance: 'outline', style: { padding: 32, minWidth: 0, textAlign: 'center' } },
-      h(Fluent.Text, { as: 'h2', size: 500, weight: 'semibold' }, title),
-      h(Fluent.Text, { style: styles.subdued }, description));
-  }
-
-  return { h, styles, Notice, Metric, Intro, Empty };
-}
-
+// Inline settings for the account supplied by the authenticated operator host.
 const PLUGIN_ID = 'mtc-soonest-reset';
 const scopePath = (path, tenant) => `${path}?${new URLSearchParams({ tenant_external_id: tenant })}`;
-const errorCopy = (error) => {
-  if ([401, 403].includes(error?.status)) return '请联系管理员开通此账号的额度管理权限。';
-  if (error?.status === 409) return '授权已被其他操作更新。请刷新后确认当前设置。';
-  if (error?.status === 404) return '升级宿主版本后即可使用此功能，请联系管理员。';
-  return '设置读取或保存失败。请刷新状态后重试。';
+const copy = {
+  zh: {
+    title: '自动使用手动重置次数', toggle: '在手动重置次数到期前 10 分钟自动使用',
+    help: '开启后，系统会检查此账号的可用次数与到期时间，在到期前 10 分钟内自动使用一次。关闭后停止后续自动使用，已提交的重置仍会继续核实。',
+    loading: '正在读取自动使用设置…', saving: '正在保存…', readonly: '当前仅可查看此账号的自动使用设置。',
+    enabled: '自动使用已开启', disabled: '自动使用已关闭', count: '可用次数', expiry: '最近到期时间', result: '最近结果',
+    refresh: '刷新状态', refreshNeeded: '待刷新', none: '暂无可用次数', waiting: '等待自动检查',
+    verify: '结果待核实', blocked: '已暂停，待检查', used: '已使用一次', verified: '已核实',
+    unknown: '上次重置结果尚未确认，系统会继续核实。请勿重复重置。',
+    accepted: '已提交一次重置，正在核实结果。',
+    quotaUnavailable: '次数或到期时间暂不可用，系统会在执行前重新检查。',
+    permission: '无法读取或修改此账号的自动使用设置，请联系管理员确认权限。',
+    conflict: '设置已被其他操作更新。请刷新状态后确认。',
+    unavailable: '暂时无法读取自动使用设置，请联系管理员检查插件。',
+    failure: '暂时无法读取设置，请刷新状态重试。',
+    saveUnknown: '尚未确认设置是否保存成功。请刷新状态后确认，再继续修改。',
+  },
+  en: {
+    title: 'Automatically use manual reset credits', toggle: 'Automatically use a manual reset credit in the last 10 minutes before expiry',
+    help: 'Checks this account’s available credits and expiry, then uses one credit in the last 10 minutes before it expires. Turning this off stops future automatic resets; submitted resets will still be checked.',
+    loading: 'Loading automatic reset settings…', saving: 'Saving…', readonly: 'You can only view automatic reset settings for this account.',
+    enabled: 'Automatic use enabled', disabled: 'Automatic use disabled', count: 'Available credits', expiry: 'Next expiry', result: 'Latest result',
+    refresh: 'Refresh status', refreshNeeded: 'Refresh needed', none: 'No available credits', waiting: 'Waiting for automatic check',
+    verify: 'Result needs verification', blocked: 'Paused; review required', used: 'One credit used', verified: 'Verified',
+    unknown: 'The last reset result is unconfirmed and is still being checked. Avoid repeating the reset.',
+    accepted: 'One reset was submitted; its result is being checked.',
+    quotaUnavailable: 'Credits or expiry are unavailable. They will be checked again before a reset.',
+    permission: 'Cannot read or change automatic reset settings for this account. Ask an administrator to check your permissions.',
+    conflict: 'These settings changed elsewhere. Refresh the status and review them.',
+    unavailable: 'Automatic reset settings are unavailable. Ask an administrator to check the plugin.',
+    failure: 'Could not load settings. Refresh the status to retry.',
+    saveUnknown: 'Could not confirm whether your settings were saved. Refresh the status before making another change.',
+  },
 };
+const copyFor = locale => copy[locale?.startsWith('zh') ? 'zh' : 'en'];
+const errorCopy = (error, c) => [401, 403].includes(error?.status) ? c.permission
+  : error?.status === 409 ? c.conflict : error?.status === 404 ? c.unavailable : c.failure;
 
 export function creditSummary(snapshot, now = Date.now()) {
   if (!snapshot || snapshot.status !== 'ready' || snapshot.stale || snapshot.freshness !== 'fresh'
@@ -84,15 +74,20 @@ export function validateEnvelope(value, accountId, tenant) {
 }
 
 export function activateOperatorUi({ React, Fluent, defineOperatorUiPackage }) {
-  const { h, styles, Notice, Metric, Intro, Empty } = createPresentation(React, Fluent);
-
-  function AccountDetails({ account, api, tenant, locale }) {
+  const h = React.createElement;
+  const stack = { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 8, minWidth: 0, overflowWrap: 'anywhere' };
+  const muted = { color: Fluent.tokens.colorNeutralForeground2 };
+  function Notice({ intent = 'info', children }) {
+    return h(Fluent.MessageBar, { intent, style: { minWidth: 0, overflowWrap: 'anywhere' } }, h(Fluent.MessageBarBody, null, children));
+  }
+  function AccountDetails({ account, api, tenant, locale, quotaSnapshot }) {
+    const c = copyFor(locale);
     const [data, setData] = React.useState(null);
-    const [quota, setQuota] = React.useState(null);
+    const quota = quotaSnapshot?.contract_version === 'upstream_quota_v1' && quotaSnapshot.upstream_account_id === account.id
+      && quotaSnapshot.tenant_external_id === tenant ? quotaSnapshot : null;
     const [loading, setLoading] = React.useState(true);
     const [saving, setSaving] = React.useState(false);
     const [error, setError] = React.useState('');
-    const [quotaError, setQuotaError] = React.useState(false);
     const [saved, setSaved] = React.useState('');
     const [reload, setReload] = React.useState(0);
     const [now, setNow] = React.useState(Date.now);
@@ -104,19 +99,13 @@ export function activateOperatorUi({ React, Fluent, defineOperatorUiPackage }) {
       const controller = new AbortController();
       alive.current = true;
       generation.current += 1;
-      setLoading(true); setData(null); setQuota(null); setError(''); setQuotaError(false);
+      setLoading(true); setData(null); setError('');
       const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(90_000)]);
-      Promise.allSettled([
-        api.requestApi({ path: base, signal }).then(value => {
-          const checked = validateEnvelope(value, account.id, tenant);
-          if (!controller.signal.aborted) setData(checked);
-        }).catch(reason => { if (!controller.signal.aborted) setError(errorCopy(reason)); }),
-        api.requestApi({ path: scopePath(`/internal/v1/upstreams/${encodeURIComponent(account.id)}/quota`, tenant), signal }).then(value => {
-          if (value?.contract_version !== 'upstream_quota_v1' || value.upstream_account_id !== account.id
-            || value.tenant_external_id !== tenant) throw new Error('Quota scope mismatch');
-          if (!controller.signal.aborted) { setQuota(value); setNow(Date.now()); }
-        }).catch(() => { if (!controller.signal.aborted) setQuotaError(true); }),
-      ]).finally(() => { if (!controller.signal.aborted) setLoading(false); });
+      api.requestApi({ path: base, signal }).then(value => {
+        const checked = validateEnvelope(value, account.id, tenant);
+        if (!controller.signal.aborted) setData(checked);
+      }).catch(reason => { if (!controller.signal.aborted) setError(errorCopy(reason, c)); })
+        .finally(() => { if (!controller.signal.aborted) setLoading(false); });
       return () => { alive.current = false; controller.abort(); };
     }, [api, base, account.id, tenant, reload]);
     React.useEffect(() => {
@@ -130,14 +119,15 @@ export function activateOperatorUi({ React, Fluent, defineOperatorUiPackage }) {
     const blocked = grant?.last_result === 'blocked';
     const uncertain = ['unknown', 'submitted'].includes(result) && !operation?.settled_at;
     const needsVerification = uncertain || (result === 'accepted' && !operation?.settled_at);
-    const summary = creditSummary(quota, now);
-    const fresh = quota && Number.isFinite(quota.stale_after) && quota.stale_after > now;
+    const currentTime = Math.max(now, Date.now());
+    const summary = creditSummary(quota, currentTime);
+    const fresh = quota && Number.isFinite(quota.stale_after) && quota.stale_after > currentTime;
     const expiry = fresh && summary.reliable ? summary.expiry : null;
-    const date = value => Number.isFinite(value) ? new Date(value).toLocaleString(locale || 'zh-CN') : '待刷新';
-    const outcome = uncertain ? '需要核实'
-      : blocked ? '已暂停，待检查'
-        : result === 'accepted' ? '已使用一次'
-          : operation?.settled_at ? '已核实' : '等待';
+    const date = value => Number.isFinite(value) ? new Date(value).toLocaleString(locale || 'zh-CN') : c.refreshNeeded;
+    const outcome = uncertain ? c.verify
+      : blocked ? c.blocked
+        : result === 'accepted' ? c.used
+          : operation?.settled_at ? c.verified : c.waiting;
     async function toggle() {
       if (writing.current || !data?.can_write) return;
       writing.current = true; setSaving(true); setError(''); setSaved('');
@@ -151,113 +141,47 @@ export function activateOperatorUi({ React, Fluent, defineOperatorUiPackage }) {
         const checked = validateEnvelope(value, account.id, tenant);
         if (alive.current && generation.current === expectedGeneration) {
           setData(checked);
-          setSaved(checked.grant?.enabled ? '已开启此账号的自动使用授权。' : '已关闭此账号的自动使用授权。');
+          setSaved(checked.grant?.enabled ? c.enabled : c.disabled);
         }
       } catch (reason) {
-        if (alive.current && generation.current === expectedGeneration) { setData(null); setError(errorCopy(reason)); }
+        if (alive.current && generation.current === expectedGeneration) { setData(null); setError([401, 403, 409].includes(reason?.status) ? errorCopy(reason, c) : c.saveUnknown); }
       } finally {
         writing.current = false;
         if (alive.current && generation.current === expectedGeneration) setSaving(false);
       }
     }
-    return h('section', { style: styles.stack, 'aria-label': `${account.name}的自动使用设置`, 'aria-busy': loading || saving },
-      h(Fluent.Card, { appearance: 'outline', style: { padding: 24, minWidth: 0 } },
-        h('div', { style: styles.row },
-          h('div', { style: { ...styles.stack, flex: '1 1 220px' } },
-            h(Fluent.Text, { as: 'h2', size: 500, weight: 'semibold', style: { margin: 0, minWidth: 0, overflowWrap: 'anywhere' } }, account.name),
-            h(Fluent.Text, { style: styles.subdued }, '账号授权 · 每个账号单独开启，可随时关闭')),
-          h(Fluent.Switch, {
-            checked: enabled, label: saving ? '正在保存…' : data ? enabled ? '授权已开启' : '授权已关闭' : '授权待确认',
-            disabled: loading || saving || !data?.can_write,
-            onChange: toggle,
-          })),
-        data && !data.can_write && h(Notice, { intent: 'warning' }, '当前为只读模式。'),
-        data && !enabled && h(Fluent.Text, { style: styles.subdued }, '开启后，在手动重置次数到期前 10 分钟自动使用一次。')),
-      loading && h(Fluent.Spinner, { size: 'small', label: '正在读取授权与手动重置次数…' }),
+    return h('div', { style: stack, 'aria-label': c.title, 'aria-busy': loading || saving, 'data-account-reset-settings': account.id },
+      h(Fluent.Tooltip, { content: c.help, relationship: 'description' },
+        h(Fluent.Switch, { checked: enabled, label: c.toggle, disabled: loading || saving || !data?.can_write,
+          onChange: toggle, style: { maxWidth: '100%', minWidth: 0 } })),
+      loading && h(Fluent.Spinner, { size: 'tiny', label: c.loading }),
+      saving && h(Fluent.Text, { role: 'status', size: 200 }, c.saving),
+      data && !data.can_write && h(Fluent.Text, { size: 200, style: muted }, c.readonly),
       error && h(Notice, { intent: 'error' }, error),
-      saved && h(Notice, { intent: 'success' }, saved),
-      uncertain && h(Notice, { intent: 'warning' }, '上次重置结果正在核实，可在上游账号查看重置记录。'),
-      !uncertain && needsVerification && h(Notice, null, '已提交一次使用请求，正在核实结果。'),
-      (quotaError || (quota && (!summary.reliable || !fresh))) && h(Notice, { intent: 'warning' }, '手动重置次数信息待确认。系统会重新检查可用次数和到期时间。'),
-      h('div', { style: styles.metrics },
-        h(Metric, { label: '可用手动重置次数', value: fresh && summary.count !== null ? `${summary.count} 次` : '待刷新' }),
-        h(Metric, { label: '最近一次到期', value: expiry ? date(expiry) : fresh && summary.count === 0 ? '0 次' : '待刷新' }),
-        h(Metric, { label: '预计开始执行', value: !data ? '待确认授权' : !enabled ? '已关闭' : needsVerification ? '结果核实中' : blocked ? '待检查' : expiry ? date(expiry - 600_000) : '到期时间待刷新', note: '在到期前 10 分钟内检查并执行' }),
-        h(Metric, { label: '最后结果', value: data ? outcome : '待刷新', note: grant?.last_attempt_at ? `最近检查 ${date(grant.last_attempt_at)}` : '开启后开始自动检查' })),
-      h(Fluent.Card, { appearance: 'outline', style: { padding: 24, minWidth: 0 } },
-        h('div', { style: styles.row },
-          h(Fluent.Text, { as: 'h2', size: 400, weight: 'semibold' }, '重置记录'),
-          h(Fluent.Button, { appearance: 'subtle', onClick: () => api.navigate('upstreams'), disabled: typeof api.navigate !== 'function' }, '打开上游账号')),
-        !data ? h(Fluent.Text, null, '读取授权后显示关联的重置记录。')
-          : !operation ? h(Fluent.Text, { style: styles.subdued }, '暂无重置记录。')
-            : h('div', { style: styles.stack },
-              h(Fluent.Badge, { appearance: 'tint', color: uncertain ? 'warning' : result === 'accepted' ? 'success' : 'informative', style: { justifySelf: 'start' } }, outcome),
-              h(Fluent.Text, null, operation.settled_at ? `已核实于 ${date(operation.settled_at)}` : '结果核实中。'),
-              h(Fluent.Text, { style: styles.subdued }, '可在上游账号中查看重置状态并核实。'))),
-      h('div', { style: styles.row },
-        h(Fluent.Text, { size: 200, style: styles.subdued }, quota?.observed_at ? `次数读取于 ${date(quota.observed_at)}` : '次数信息待刷新'),
-        h(Fluent.Button, { disabled: loading || saving, onClick: () => { setSaved(''); setReload(value => value + 1); } }, '刷新状态')));
+      saved && h(Fluent.Text, { role: 'status', size: 200 }, saved),
+      uncertain && h(Notice, { intent: 'warning' }, c.unknown),
+      !uncertain && needsVerification && h(Notice, null, c.accepted),
+      (!quota || !summary.reliable || !fresh) && h(Fluent.Text, { size: 200, style: muted }, c.quotaUnavailable),
+      h('dl', { style: { ...stack, margin: 0, fontSize: 12 } },
+        ...[[c.count, fresh && summary.count !== null ? String(summary.count) : c.refreshNeeded],
+          [c.expiry, expiry ? date(expiry) : fresh && summary.count === 0 ? c.none : c.refreshNeeded],
+          [c.result, data ? outcome : c.refreshNeeded]].map(([label, value]) => h('div', { key: label, style: { display: 'flex', gap: 12, flexWrap: 'wrap' } },
+            h('dt', { style: muted }, label), h('dd', { style: { margin: 0 } }, value)))),
+      h(Fluent.Button, { size: 'small', appearance: 'subtle', style: { justifySelf: 'start' }, disabled: loading || saving,
+        onClick: () => { setSaved(''); setReload(value => value + 1); } }, c.refresh));
   }
 
-  function Workspace({ api, tenantExternalId, locale }) {
+  function AccountResetSettings({ api, tenantExternalId, locale, context }) {
+    const account = context?.upstreamAccount;
     const tenant = tenantExternalId?.trim() ?? '';
-    const [accounts, setAccounts] = React.useState([]);
-    const [loadedTenant, setLoadedTenant] = React.useState('');
-    const [selected, setSelected] = React.useState('');
-    const [search, setSearch] = React.useState('');
-    const [loading, setLoading] = React.useState(false);
-    const [error, setError] = React.useState('');
-    const [reload, setReload] = React.useState(0);
-    const supported = typeof api?.requestApi === 'function';
-    React.useEffect(() => {
-      setAccounts([]); setLoadedTenant(''); setSelected(''); setSearch(''); setError('');
-      if (!tenant || !supported) return;
-      const controller = new AbortController();
-      setLoading(true);
-      api.requestApi({ path: scopePath('/internal/v1/upstreams', tenant),
-        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(30_000)]) })
-        .then(value => {
-          if (!Array.isArray(value)) throw new Error('Unsupported account list');
-          const eligible = value.filter(account => account.driver === 'openai-codex'
-            && typeof account.id === 'string' && typeof account.name === 'string'
-            && (!account.tenant_external_id || account.tenant_external_id === tenant));
-          if (!controller.signal.aborted) { setAccounts(eligible); setLoadedTenant(tenant); }
-        })
-        .catch(reason => { if (!controller.signal.aborted) setError(errorCopy(reason)); })
-        .finally(() => { if (!controller.signal.aborted) setLoading(false); });
-      return () => controller.abort();
-    }, [api, tenant, supported, reload]);
-    const scopedAccounts = loadedTenant === tenant ? accounts : [];
-    const account = scopedAccounts.find(value => value.id === selected);
-    const filtered = scopedAccounts.filter(value => value.name.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
-    return h('main', { style: styles.page },
-      h(Intro),
-      h(Fluent.Card, { appearance: 'outline', style: { padding: 20, display: 'grid', gap: 12 } },
-        h(Fluent.Text, { as: 'h2', size: 500, weight: 'semibold' }, '额度分配'),
-        h(Fluent.Text, null, '同一会话优先沿用账号；新会话结合剩余额度和历史请求量，优先分配给较空闲的账号。也可优先使用即将重置的额度。'),
-        h(Fluent.Link, { href: '/operator?view=routes' }, '设置账号组的额度分配')),
-
-      !tenant ? h(Empty, { title: '先选择租户', description: '自动使用授权属于当前租户，请先选择要管理的租户。' })
-        : !supported ? h(Notice, { intent: 'warning' }, '升级宿主版本后即可使用此功能，请联系管理员。')
-          : h(React.Fragment, null,
-            loading && h(Fluent.Spinner, { label: '正在加载 Codex 账号…' }),
-            error && h(Notice, { intent: 'error' }, error, ' ', h(Fluent.Button, { size: 'small', onClick: () => setReload(value => value + 1) }, '重试')),
-            !loading && !error && loadedTenant === tenant && scopedAccounts.length === 0 && h(Empty, { title: '暂无 Codex 账号', description: '在上游账号中连接 Codex 后，即可为账号单独开启自动使用授权。' }),
-            scopedAccounts.length > 0 && h(Fluent.Field, { label: '选择 Codex 账号', hint: '按账号名称搜索。选择后可查看次数、到期时间与授权状态。' },
-              h(Fluent.Combobox, {
-                placeholder: '搜索并选择账号', value: search || account?.name || '', selectedOptions: account ? [account.id] : [],
-                onChange: event => setSearch(event.target.value),
-                onOptionSelect: (_event, value) => { setSelected(value.optionValue ?? ''); setSearch(''); },
-                style: { width: '100%', maxWidth: 520, minWidth: 0, boxSizing: 'border-box' },
-              }, filtered.map(value => h(Fluent.Option, { key: value.id, value: value.id, text: value.name }, value.name)),
-              filtered.length === 0 && h(Fluent.Option, { disabled: true, value: '__empty' }, '没有匹配的账号'))),
-            account ? h(AccountDetails, { key: `${tenant}:${account.id}`, account, api, tenant, locale })
-              : scopedAccounts.length > 0 && h(Empty, { title: '选择一个账号查看设置', description: '选择后可查看手动重置次数并开启自动使用。' })));
+    // Missing or cross-tenant context must never start a request or infer another account.
+    if (!tenant || !account || account.tenantExternalId !== tenant || account.provider !== 'openai-codex'
+      || typeof account.id !== 'string' || !account.id || typeof account.name !== 'string') return null;
+    if (typeof api?.requestApi !== 'function') return h(Notice, { intent: 'warning' }, copyFor(locale).unavailable);
+    return h(AccountDetails, { key: `${tenant}:${account.id}`, account, api, tenant, locale, quotaSnapshot: context.quotaSnapshot });
   }
   return defineOperatorUiPackage({
-    apiVersion: 'operator-ui-package-v1',
-    pluginId: PLUGIN_ID,
-    compatiblePluginVersions: ['1.1.2'],
-    components: { workspace: Workspace },
+    apiVersion: 'operator-ui-package-v1', pluginId: PLUGIN_ID,
+    compatiblePluginVersions: ['1.2.0'], components: { 'account-reset-settings': AccountResetSettings },
   });
 }

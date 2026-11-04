@@ -103,7 +103,11 @@ function validateManifest(item, manifest) {
     assert.equal(manifest.wasm, 'plugin.wasm');
     assert.deepEqual(manifest.capabilities, [{ kind: 'group_routing_quota' }, { kind: 'quota_reset_credit' }]);
     assert.equal(manifest.contributions.background_actions.interval_seconds, 60);
+    assert.equal(manifest.contributions.operator_ui.length, 1);
     assert.equal(manifest.contributions.operator_ui[0].module_entry, 'ui/quota-management.mjs');
+    assert.equal(manifest.contributions.operator_ui[0].slot, 'operator.upstream-account.reset-settings');
+    assert.equal(manifest.contributions.operator_ui[0].component_id, 'account-reset-settings');
+    for (const key of ['route', 'category', 'target_route']) assert.equal(manifest.contributions.operator_ui[0][key], undefined);
     assert.equal(manifest.contributions.group_routing.version, 'group-routing-v1');
     assert.equal(manifest.contributions.group_routing.health_policy, 'native');
   } else if (item.id === 'google-antigravity') {
