@@ -12,7 +12,7 @@ const reviewedSchema = json('schemas-health-intelligence.json');
 const installerTrust = json('release/installer-trust.json');
 
 assert.equal(manifest.id, 'mtc-health-intelligence');
-assert.equal(manifest.version, '1.2.1');
+assert.equal(manifest.version, '1.3.0');
 assert.equal(json('package.json').version, manifest.version);
 assert.equal(json('package-lock.json').version, manifest.version);
 assert.equal(json('package-lock.json').packages[''].version, manifest.version);

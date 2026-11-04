@@ -99,7 +99,7 @@ describe('signed operator UI module', () => {
       id: 'deepswe', label: 'DeepSWE 工程能力', status: 'ok',
       fetchedAt: new Date().toISOString(), rows: [{ model: 'unknown', samples: 7, message: null }],
     }] };
-    const tableCell = Symbol('TableCell');
+    const tableCell = 'dd';
     const cells: unknown[] = [];
     let stateIndex = 0;
     const componentPackage = module.activateOperatorUi({
@@ -126,6 +126,27 @@ describe('signed operator UI module', () => {
       ...labels, ...statuses.slice(4).map(() => unknownLabel),
       'unknown', '7', '—',
     ]);
+  });
+
+  it('separates old source publications, expired collection caches and unknown observation dates', async () => {
+    const module = await import(url);
+    const now = Date.parse('2026-11-04T20:30:00Z');
+    const base = { status: 'ok', fetchedAt: new Date(now).toISOString(), sourceUpdatedAt: null, maxObservationAgeSeconds: 2592000 };
+    expect(module.freshnessReason(base, now)).toBe('sourceUnknown');
+    expect(module.freshnessReason({ ...base, sourceUpdatedAt: '2026-09-22T06:27:15.860Z' }, now)).toBe('sourceOld');
+    expect(module.freshnessReason({ ...base, fetchedAt: '2026-11-04T19:00:00Z', sourceUpdatedAt: '2026-09-22T06:27:15.860Z' }, now)).toBe('stale');
+    expect(module.freshnessReason({ ...base, sourceUpdatedAt: '2026-11-04T20:29:00Z' }, now)).toBe('ok');
+  });
+
+  it('charts source values in their own units and leaves missing observations as gaps', async () => {
+    const module = await import(url);
+    const option = module.comparisonOption({ rows: [{ model: '<img>', effort: 'high', passRate: 0.741 }, { model: 'missing', passRate: null }] }, 'passRate', 'Pass rate', true);
+    expect(option.series[0].data).toEqual([74.1]);
+    expect(option.tooltip.renderMode).toBe('richText');
+    const history = module.historyOption({ sample0At: '2026-11-04T20:29:00Z', sample0LatencyMs: null,
+      sample1At: '2026-11-04T20:24:00Z', sample1LatencyMs: 1234 }, 'Response start');
+    expect(history.series[0].data).toEqual([[Date.parse('2026-11-04T20:24:00Z'), 1234], [Date.parse('2026-11-04T20:29:00Z'), null]]);
+    expect(history.series[0].connectNulls).toBe(false);
   });
 
   it('accepts source HTTPS links and rejects executable or credential-bearing URLs', async () => {

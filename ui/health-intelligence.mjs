@@ -1,5 +1,5 @@
 const PLUGIN_ID = 'mtc-health-intelligence';
-const PLUGIN_VERSIONS = ['1.1.0', '1.2.0', '1.2.1'];
+const PLUGIN_VERSIONS = ['1.1.0', '1.2.0', '1.2.1', '1.3.0'];
 const COMPONENT_ID = 'health-intelligence';
 const ENDPOINT_ID = 'health-intelligence';
 const TICK_INTERVAL_MS = 30 * 1000;
@@ -57,20 +57,34 @@ const STRINGS = {
   loadFailed: { en: 'Health data failed to load', zh: '健康数据加载失败' },
   tryAgain: { en: 'Try again', zh: '重试' },
   openPage: { en: 'Open source page', zh: '打开来源页面' },
-  fetchedAt: { en: 'Fetched', zh: '采集时间' },
-  sourceUpdatedAt: { en: 'Source updated', zh: '来源更新' },
+  fetchedAt: { en: 'Fetched', zh: '最近采集' },
+  sourceUpdatedAt: { en: 'Source observation', zh: '来源采样时间' },
   emptyRows: { en: 'No source records available', zh: '暂无来源记录' },
   emptySources: { en: 'Awaiting source data', zh: '等待来源数据' },
   updated: { en: 'Updated', zh: '更新于' },
   unavailable: { en: 'Source data is currently unavailable. Collection retries automatically.', zh: '暂时无法获取来源数据，系统会自动重试采集。' },
-  refreshHelp: { en: 'Refresh reloads the latest collected data.', zh: '刷新会重新读取最近一次采集结果。' },
+  refreshHelp: { en: 'Refresh reloads collected results; each source publishes on its own schedule. Public benchmarks and third-party probes do not affect request routing.', zh: '刷新读取最近采集结果；来源按各自周期发布。公开评测与第三方探测仅供参考，不影响请求路由。' },
   retryHelp: { en: 'Please retry. If the issue persists, check the plugin service status.', zh: '请重试；若问题持续，请检查插件服务状态。' },
-  ok: { en: 'Updated', zh: '已更新' },
-  stale: { en: 'Stale', zh: '数据偏旧' },
+  ok: { en: 'Collected', zh: '采集正常' },
+  stale: { en: 'Cached result', zh: '缓存待刷新' },
   error: { en: 'Error', zh: '异常' },
   operational: { en: 'Operational', zh: '正常' },
   degraded: { en: 'Degraded', zh: '降级' },
   unknown: { en: 'Unknown', zh: '未知' },
+  sourceOld: { en: 'Older source observations', zh: '来源采样较早' },
+  sourceUnknown: { en: 'Source time not provided', zh: '来源未提供采样时间' },
+  sourceOldHelp: { en: 'Collection succeeded. The source still publishes these older observations.', zh: '已取得来源数据；来源当前发布的采样时间较早。' },
+  cachedHelp: { en: 'Showing a cached result. Collection has not produced a newer snapshot yet.', zh: '正在显示缓存结果，尚未取得新的采集快照。' },
+  missingHelp: { en: 'Collection time is known; the age of the source observations cannot be verified.', zh: '采集时间不代表采样时间；无法确认来源数据的年龄。' },
+  details: { en: 'All collected records', zh: '查看全部采集记录' },
+  noChart: { en: 'Chart unavailable; all values are listed below.', zh: '当前无法显示图表，可查看下方完整数值。' },
+  noMetric: { en: 'No valid values for this metric', zh: '此指标暂无有效数值' },
+  history: { en: 'Recent response-start observations', zh: '近期开始响应耗时' },
+  historyHelp: { en: 'Up to six actual checks per provider. Gaps are missing values, not zero latency.', zh: '每个提供方最多展示最近 6 次实际检查；缺失值保留为空，不按零延迟绘制。' },
+  scopeHealth: { en: 'Third-party provider checks, not the health of your configured accounts. Latency is time until the upstream begins responding, not generation speed.', zh: '展示第三方提供方探测，不代表本站账号健康。耗时指上游开始响应的等待时间，不代表生成速度。' },
+  scopeRadar: { en: 'Codex Radar benchmark IQ scores. Compare only within this source and reasoning setting.', zh: 'Codex Radar 的 IQ 评测分数，仅在同一来源与推理档位下比较。' },
+  scopeSwe: { en: 'DeepSWE engineering benchmark; pass rate and Pass@4 have different meanings. Cost is the source estimate in USD.', zh: 'DeepSWE 工程评测；单次通过率与 Pass@4 含义不同。成本为来源估算，单位美元。' },
+  records: { en: 'Collected records (up to 24)', zh: '已采集记录（最多 24 条）' },
   yes: { en: 'Yes', zh: '是' },
   no: { en: 'No', zh: '否' },
 };
@@ -91,7 +105,7 @@ const COLUMN_LABELS = {
   agentSteps: { en: 'Agent steps', zh: '代理步骤' },
   providerType: { en: 'Provider type', zh: '提供方类型' },
   status: { en: 'Status', zh: '状态' },
-  latencyMs: { en: 'Latency (ms)', zh: '延迟 (ms)' },
+  latencyMs: { en: 'Response start (ms)', zh: '开始响应耗时 (ms)' },
   pingLatencyMs: { en: 'Ping (ms)', zh: 'Ping (ms)' },
   checkedAt: { en: 'Checked at', zh: '检查时间' },
   message: { en: 'Message', zh: '消息' },
@@ -106,28 +120,64 @@ function columnsOf(rows) {
   for (const row of rows) {
     if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
     for (const key of Object.keys(row)) {
-      if (key !== 'key' && !columns.includes(key)) columns.push(key);
+      if (key !== 'key' && !/^sample[0-5](At|Status|LatencyMs)$/.test(key) && !columns.includes(key)) columns.push(key);
     }
   }
   return columns;
 }
 
-export function isRuntimeStale(source, now) {
-  const fetched = Date.parse(source && source.fetchedAt);
+export function freshnessReason(source, now = Date.now()) {
+  if (!source || source.status === 'error') return 'error';
+  const fetched = Date.parse(source.fetchedAt);
   if (!Number.isFinite(fetched) || fetched > now + MAX_CLOCK_SKEW_MS
-      || now - fetched > STALE_FETCH_AGE_MS) return true;
-  const updated = source && source.sourceUpdatedAt == null ? fetched : Date.parse(source.sourceUpdatedAt);
-  if (!Number.isFinite(updated) || updated > now + MAX_CLOCK_SKEW_MS) return true;
-  const maxAge = Number(source && source.maxObservationAgeSeconds);
-  if (Number.isFinite(updated) && Number.isFinite(maxAge) && maxAge >= 0
-      && now - updated > maxAge * 1000) return true;
-  return false;
+      || now - fetched > STALE_FETCH_AGE_MS) return 'stale';
+  const observed = source.sourceUpdatedAt == null ? null : Date.parse(source.sourceUpdatedAt);
+  if (observed !== null && (!Number.isFinite(observed) || observed > now + MAX_CLOCK_SKEW_MS)) return 'sourceUnknown';
+  const maxAge = Number(source.maxObservationAgeSeconds);
+  if (observed !== null && Number.isFinite(maxAge) && maxAge > 0 && now - observed > maxAge * 1000) return 'sourceOld';
+  if (source.status === 'stale') return 'stale';
+  return observed === null ? 'sourceUnknown' : 'ok';
 }
 
-function effectiveStatus(source, now) {
-  if (source && source.status === 'error') return 'error';
-  if ((source && source.status === 'stale') || isRuntimeStale(source, now)) return 'stale';
-  return 'ok';
+export function isRuntimeStale(source, now) {
+  return ['stale', 'sourceOld'].includes(freshnessReason(source, now))
+    || (source?.sourceUpdatedAt != null && !Number.isFinite(Date.parse(source.sourceUpdatedAt)))
+    || Date.parse(source?.sourceUpdatedAt) > now + MAX_CLOCK_SKEW_MS;
+}
+
+// Canvas tooltips avoid interpreting upstream labels as HTML.
+export function comparisonOption(source, field, title, percent = false) {
+  const rows = (source.rows || []).filter(row => typeof row?.[field] === 'number' && Number.isFinite(row[field])).slice(0, 12);
+  const label = row => [row.name || row.model || row.key, row.effort].filter(Boolean).join(' · ');
+  return {
+    animation: false, aria: { enabled: true },
+    tooltip: { trigger: 'axis', renderMode: 'richText', confine: true },
+    grid: { left: 8, right: 38, top: 28, bottom: 12, containLabel: true },
+    xAxis: { type: 'value', name: title, nameLocation: 'middle', nameGap: 18,
+      position: 'top', ...(percent ? { max: 100 } : {}), axisLabel: { formatter: percent ? '{value}%' : '{value}' } },
+    yAxis: { type: 'category', inverse: true, data: rows.map(label),
+      axisLabel: { width: 105, overflow: 'truncate', fontSize: 11 } },
+    series: [{ type: 'bar', name: title, barMaxWidth: 18,
+      data: rows.map(row => percent ? Math.round(row[field] * 1000) / 10 : row[field]),
+      label: { show: true, position: 'right', fontSize: 10, formatter: percent ? '{c}%' : '{c}' } }],
+  };
+}
+
+export function historyOption(row, title) {
+  const data = [];
+  for (let index = 5; index >= 0; index--) {
+    const at = Date.parse(row?.[`sample${index}At`]);
+    if (!Number.isFinite(at)) continue;
+    const value = row[`sample${index}LatencyMs`];
+    data.push([at, typeof value === 'number' && Number.isFinite(value) ? value : null]);
+  }
+  return { animation: false, aria: { enabled: true },
+    tooltip: { trigger: 'axis', renderMode: 'richText', confine: true },
+    grid: { left: 8, right: 18, top: 32, bottom: 12, containLabel: true },
+    xAxis: { type: 'time', axisLabel: { hideOverlap: true } },
+    yAxis: { type: 'value', name: 'ms', min: 0 },
+    series: [{ type: 'line', name: title, data, connectNulls: false, showSymbol: true }],
+  };
 }
 
 export function activateOperatorUi(host) {
@@ -177,7 +227,7 @@ export function activateOperatorUi(host) {
       gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 520px), 1fr))',
     },
     gridCompact: {
-      gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+      gridTemplateColumns: 'minmax(0, 1fr)',
       gap: tokens.spacingHorizontalM,
     },
     card: {
@@ -186,6 +236,7 @@ export function activateOperatorUi(host) {
       gap: tokens.spacingVerticalM,
       padding: tokens.spacingHorizontalL,
       minWidth: 0,
+      overflowWrap: 'anywhere',
       border: `1px solid ${tokens.colorNeutralStroke2}`,
       borderRadius: tokens.borderRadiusLarge,
       backgroundColor: tokens.colorNeutralBackground1,
@@ -202,9 +253,13 @@ export function activateOperatorUi(host) {
       gap: tokens.spacingVerticalXXS,
       color: tokens.colorNeutralForeground3,
     },
-    tableWrap: {
-      overflowX: 'auto',
-    },
+    records: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: tokens.spacingHorizontalM },
+    record: { minWidth: 0, overflowWrap: 'anywhere', padding: tokens.spacingHorizontalM, border: `1px solid ${tokens.colorNeutralStroke2}`, borderRadius: tokens.borderRadiusMedium },
+    values: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: tokens.spacingHorizontalS, margin: 0 },
+    value: { margin: 0, overflowWrap: 'anywhere' },
+    chart: { width: '100%', minWidth: 0 },
+    select: { maxWidth: '100%', minWidth: 0, padding: '8px', color: tokens.colorNeutralForeground1, backgroundColor: tokens.colorNeutralBackground1 },
+
     center: {
       display: 'flex',
       flexDirection: 'column',
@@ -216,7 +271,7 @@ export function activateOperatorUi(host) {
     },
   });
 
-  const BADGE_COLORS = { ok: 'success', stale: 'warning', error: 'danger' };
+  const BADGE_COLORS = { ok: 'success', stale: 'warning', sourceOld: 'informative', sourceUnknown: 'subtle', error: 'danger' };
 
   function HealthIntelligence(props) {
     const styles = useStyles();
@@ -230,6 +285,7 @@ export function activateOperatorUi(host) {
     const [initialLoading, setInitialLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [reloadKey, setReloadKey] = useState(0);
+    const [healthKey, setHealthKey] = useState('');
     const [now, setNow] = useState(() => Date.now());
 
     useEffect(() => {
@@ -244,7 +300,9 @@ export function activateOperatorUi(host) {
       props.api.loadServiceData(ENDPOINT_ID, controller.signal).then((response) => {
         if (!active) return;
         const data = runtimeSnapshot(response);
-        setSnapshot(data);
+        const captured = response.provenance?.fetched_at;
+        setSnapshot({ ...data, collectionFetchedAt: typeof captured === 'number' && Number.isFinite(captured)
+          && captured > 0 && captured <= Date.now() + MAX_CLOCK_SKEW_MS ? new Date(captured).toISOString() : null });
         setFailure(null);
         setInitialLoading(false);
         setRefreshing(false);
@@ -278,6 +336,7 @@ export function activateOperatorUi(host) {
         return text(STRINGS[status]);
       }
       if (value === null || value === undefined || value === '') return '—';
+      if (column === 'effort' && value === 'unspecified') return lang === 'zh' ? '未注明' : 'Unspecified';
       if (DATE_COLUMNS.has(column)) return formatDate(value);
       if (typeof value === 'number') {
         if (PERCENT_COLUMNS.has(column)) return formats.percent.format(value);
@@ -324,30 +383,57 @@ export function activateOperatorUi(host) {
 
     const sources = snapshot ? snapshotSources(snapshot) : [];
 
-    const renderTable = (source) => {
+    const renderRecords = (source) => {
       const rows = Array.isArray(source.rows) ? source.rows.slice(0, MAX_ROWS) : [];
-      if (rows.length === 0) {
-        return h(Caption1, null, text(STRINGS.emptyRows));
-      }
-      const columns = columnsOf(rows);
-      return h('div', { className: styles.tableWrap },
-        h(Table, { size: props.compact ? 'extra-small' : 'small', 'aria-label': source.label },
-          h(TableHeader, null,
-            h(TableRow, null,
-              columns.map((column) => h(TableHeaderCell, { key: column }, columnLabel(column))))),
-          h(TableBody, null,
-            rows.map((row, index) => h(TableRow, { key: (row && row.key) || index },
-              columns.map((column) => h(TableCell, { key: column }, formatCell(column, row ? row[column] : null))))))));
+      if (!rows.length) return h(Caption1, null, text(STRINGS.emptyRows));
+      return h('details', null,
+        h('summary', { style: { cursor: 'pointer', padding: '8px 0' } }, text(STRINGS.details), ` (${rows.length})`),
+        h('div', { className: styles.records }, rows.map((row, index) => h('article', {
+          key: `${row?.key || 'record'}:${index}`, className: styles.record,
+        }, h('dl', { className: styles.values }, columnsOf([row]).map(column => h(React.Fragment, { key: column },
+          h('dt', null, columnLabel(column)),
+          h('dd', { className: styles.value }, formatCell(column, row[column])))))))));
+    };
+
+    const chart = (option, label, height) => host.EChart
+      ? h(host.EChart, { option, ariaLabel: label, locale: lang === 'zh' ? 'zh-CN' : 'en',
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, style: { width: '100%', height, minWidth: 0 } })
+      : h(Caption1, null, text(STRINGS.noChart));
+
+    const renderCharts = (source) => {
+      const rows = Array.isArray(source.rows) ? source.rows.slice(0, MAX_ROWS) : [];
+      if (!rows.length) return null;
+      const field = source.id === 'aixhan' ? 'latencyMs' : source.id === 'deepswe' ? 'passRate' : source.id === 'codexradar' ? 'iq' : null;
+      if (!field) return null;
+      const label = columnLabel(field);
+      const count = rows.filter(row => typeof row[field] === 'number').slice(0, 12).length;
+      const selected = rows.find(row => row.key === healthKey) || rows[0];
+      const hasHistory = source.id === 'aixhan' && rows.some(row => row.sample0At);
+      return h('div', { className: styles.chart },
+        h(Caption1, null, lang === 'zh' ? `图中最多展示 12 条，完整数值见下方记录。` : 'Chart shows up to 12 records. All collected values are listed below.'),
+        count ? chart(comparisonOption(source, field, label, field === 'passRate'), label, Math.max(180, count * 38 + 58))
+          : h(Caption1, null, text(STRINGS.noMetric)),
+        hasHistory ? h('div', null,
+          h('label', null, text(STRINGS.history), ' ',
+            h('select', { className: styles.select, value: selected.key, onChange: event => setHealthKey(event.target.value),
+              'aria-label': lang === 'zh' ? '选择探测提供方' : 'Select checked provider' },
+              rows.map(row => h('option', { key: row.key, value: row.key }, row.name || row.key)))),
+          chart(historyOption(selected, text(STRINGS.history)), text(STRINGS.history), 220),
+          h(Caption1, null, text(STRINGS.historyHelp))) : null);
     };
 
     const renderSource = (source) => {
-      const status = effectiveStatus(source, now);
+      const status = freshnessReason({ ...source, fetchedAt: snapshot.collectionFetchedAt || source.fetchedAt }, now);
       const sourceHref = safeSourceHref(source.pageUrl);
       const metaItems = [
-        `${text(STRINGS.fetchedAt)}: ${formatDate(source.fetchedAt)}`,
-        `${text(STRINGS.sourceUpdatedAt)}: ${formatDate(source.sourceUpdatedAt)}`,
+        `${text(STRINGS.fetchedAt)}: ${formatDate(snapshot.collectionFetchedAt)}`,
+        `${source.id === 'aixhan' ? (lang === 'zh' ? '最近探测' : 'Latest check') : (lang === 'zh' ? '来源数据发布' : 'Source data published')}: ${formatDate(source.sourceUpdatedAt)}`,
+        `${lang === 'zh' ? '来源响应时间（HTTP Date）' : 'Source response time (HTTP Date)'}: ${formatDate(source.fetchedAt)}`,
       ];
-      if (source.error) metaItems.push(text(STRINGS.unavailable));
+      if (source.error || status === 'error') metaItems.push(text(STRINGS.unavailable));
+      if (status === 'sourceOld') metaItems.push(text(STRINGS.sourceOldHelp));
+      if (status === 'sourceUnknown') metaItems.push(text(STRINGS.missingHelp));
+      if (status === 'stale') metaItems.push(text(STRINGS.cachedHelp));
       return h('section', { key: source.id || source.label, className: styles.card },
         h('div', { className: styles.cardHeader },
           h(Text, { as: 'h3', size: 500, weight: 'semibold' }, source.label),
@@ -357,7 +443,9 @@ export function activateOperatorUi(host) {
           sourceHref
             ? h(Link, { href: sourceHref, target: '_blank', rel: 'noopener noreferrer' }, text(STRINGS.openPage))
             : null),
-        renderTable(source));
+        h(Caption1, null, text(STRINGS[source.id === 'aixhan' ? 'scopeHealth' : source.id === 'deepswe' ? 'scopeSwe' : 'scopeRadar'])),
+        renderCharts(source),
+        renderRecords(source));
     };
 
     return h('div', { className: styles.root },

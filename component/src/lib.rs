@@ -51,11 +51,11 @@ fn rows(source: &Source, body: &Value) -> Result<(Option<String>, Vec<Value>), S
     for item in input {
         if source.normalizer == "aixhan_v1" {
             let mut newest: Option<(Option<String>, &Value)> = None;
-            for value in item["items"].as_array().into_iter().flatten()
-                .chain(item.get("latest").filter(|v| v.is_object())) {
+            for value in item.get("latest").filter(|v| v.is_object()).into_iter()
+                .chain(item["items"].as_array().into_iter().flatten()) {
                 let checked = date(&value["checkedAt"]);
-                // Stable sort followed by last() chose the last observation on ties.
-                if newest.as_ref().is_none_or(|(best,_)| &checked >= best) { newest = Some((checked,value)); }
+                // Prefer the declared latest observation on timestamp ties, like the TS adapter.
+                if newest.as_ref().is_none_or(|(best,_)| &checked > best) { newest = Some((checked,value)); }
             }
             let Some((_,latest)) = newest else { continue; };
             let mut name = text(&latest["name"]);
@@ -64,14 +64,29 @@ fn rows(source: &Source, body: &Value) -> Result<(Option<String>, Vec<Value>), S
             if name.is_empty() || status.is_empty() { continue; }
             let status = match status.as_str() { "operational" | "degraded" | "error" => status.as_str(), _ => "unknown" };
             let id = text(&latest["id"]);
-            result.push(json!({"key": if id.is_empty() { &name } else { &id }, "name": name,
+            let mut row = json!({"key": if id.is_empty() { &name } else { &id }, "name": name,
                 "model": nullable_text(&latest["model"]), "providerType": nullable_text(&latest["type"]),
                 "status": status, "latencyMs": bounded(&latest["latencyMs"], 86400000.0),
                 "pingLatencyMs": bounded(&latest["pingLatencyMs"], 86400000.0),
-                "checkedAt": date(&latest["checkedAt"]), "message": nullable_text(&latest["message"])}));
+                "checkedAt": date(&latest["checkedAt"]), "message": nullable_text(&latest["message"])});
+            let mut history: Vec<(String, &Value)> = item.get("latest").filter(|v| v.is_object()).into_iter()
+                .chain(item["items"].as_array().into_iter().flatten())
+                .filter_map(|v| date(&v["checkedAt"]).map(|at| (at, v))).collect();
+            // Prefer latest on equal timestamps, matching the selected observation.
+            history.sort_by(|a,b| b.0.cmp(&a.0));
+            history.dedup_by(|a,b| a.0 == b.0);
+            for (index,(at,observation)) in history.iter().take(6).enumerate() {
+                row[format!("sample{index}At")] = json!(at);
+                let status = text(&observation["status"]).to_lowercase();
+                row[format!("sample{index}Status")] = json!(match status.as_str() {
+                    "operational" | "degraded" | "error" => status.as_str(), _ => "unknown" });
+                row[format!("sample{index}LatencyMs")] = bounded(&observation["latencyMs"],86400000.0);
+            }
+            result.push(row);
         } else {
             let model = text(&item["model"]);
-            let effort = text(&item[if source.normalizer == "codexradar_v1" { "effort" } else { "reasoning_effort" }]);
+            let mut effort = text(&item[if source.normalizer == "codexradar_v1" { "effort" } else { "reasoning_effort" }]);
+            if source.normalizer == "deepswe_v1" && effort.is_empty() { effort = "unspecified".into(); }
             if model.is_empty() || effort.is_empty() { continue; }
             let id: String = format!("{model}:{effort}").chars().take(180).collect();
             if source.normalizer == "codexradar_v1" {
@@ -134,7 +149,7 @@ struct HttpEnvelope<'a> {
 }
 fn request(url: &str, robots: bool, attempts: &mut u32) -> Result<(Vec<u8>, Option<String>), String> {
     let headers = json!({"accept":if robots {"text/plain"} else {"application/json"},
-        "user-agent":"mtc-health-intelligence/1.2.1 (public-readonly)"}).to_string();
+        "user-agent":"mtc-health-intelligence/1.3.0 (public-readonly)"}).to_string();
     if robots {
         // Metadata-only preflight avoids downloading HTML app shells as robots text.
         // Unsupported HEAD falls back to the same bounded GET rules below.
@@ -190,9 +205,15 @@ fn valid_compact_rows(source: &Source, value: &CompactSource) -> bool {
         "deepswe_v1" => json!({"model":r["model"],"reasoning_effort":r["effort"],"pass_rate":r["passRate"],
             "pass_at_4":r["passAt4"],"mean_cost_usd":r["averageCostUsd"],"mean_output_tokens":r["outputTokens"],
             "mean_agent_steps":r["agentSteps"],"n_attempted":r["samples"]}),
-        _ => json!({"latest":{"id":r["key"],"name":r["name"],"model":r["model"],"type":r["providerType"],
+        _ => {
+            let history: Vec<Value> = (0..6).filter_map(|index| {
+                r.get(format!("sample{index}At")).map(|at| json!({"checkedAt":at,
+                    "status":r[format!("sample{index}Status")], "latencyMs":r[format!("sample{index}LatencyMs")]}))
+            }).collect();
+            json!({"items":history,"latest":{"id":r["key"],"name":r["name"],"model":r["model"],"type":r["providerType"],
             "status":r["status"],"latencyMs":r["latencyMs"],"pingLatencyMs":r["pingLatencyMs"],
-            "checkedAt":r["checkedAt"],"message":r["message"]}}),
+            "checkedAt":r["checkedAt"],"message":r["message"]}})
+        },
     }).collect();
     let key = match source.normalizer.as_str() { "codexradar_v1" => "comprehensive_points", "deepswe_v1" => "rows", _ => "providerTimelines" };
     let mut body = json!({});

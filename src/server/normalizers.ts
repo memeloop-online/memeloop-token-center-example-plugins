@@ -118,7 +118,7 @@ export function normalizeDeepSwe(payload: unknown): NormalizedDeepSwe {
   for (const value of rowValues) {
     const row = record(value);
     const model = row ? requiredText(row.model) : null;
-    const effort = row ? requiredText(row.reasoning_effort) : null;
+    const effort = row ? requiredText(row.reasoning_effort) ?? 'unspecified' : null;
     const passRate = row ? fraction(row.pass_rate) : null;
     if (!model || !effort || passRate === null) continue;
     const passAt4 = row ? fraction(row.pass_at_4) : null;
@@ -172,6 +172,18 @@ export function normalizeAixHan(payload: unknown): NormalizedAixHan {
     const name = requiredText(item.name) ?? requiredText(timeline.name);
     const status = requiredText(item.status);
     if (!name || !status) continue;
+    const history: Record<string, string | number | null> = {};
+    const seen = new Set<string>();
+    for (const observation of timelineItems) {
+      const at = isoDate(observation.checkedAt);
+      if (!at || seen.has(at) || seen.size >= 6) continue;
+      const index = seen.size;
+      seen.add(at);
+      const ms = finiteNumber(observation.latencyMs);
+      history[`sample${index}At`] = at;
+      history[`sample${index}Status`] = aixHanStatus(observation.status);
+      history[`sample${index}LatencyMs`] = ms !== null && ms >= 0 && ms <= 86_400_000 ? ms : null;
+    }
     const checkedAt = isoDate(item.checkedAt);
     const latency = finiteNumber(item.latencyMs);
     const pingLatency = finiteNumber(item.pingLatencyMs);
@@ -185,6 +197,7 @@ export function normalizeAixHan(payload: unknown): NormalizedAixHan {
       pingLatencyMs: pingLatency !== null && pingLatency >= 0 && pingLatency <= 86_400_000 ? pingLatency : null,
       checkedAt,
       message: requiredText(item.message),
+      ...history,
     });
   }
   if (timelines.length > 0 && rows.length === 0) throw new InvalidPayloadError();

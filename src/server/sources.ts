@@ -11,6 +11,7 @@ export interface SourceSpec extends FixedEndpoint {
   readonly label: string;
   readonly dataPath: string;
   readonly normalize: (payload: unknown) => { sourceUpdatedAt: string | null; rows: SourceRow[] };
+  /** Source publication/check age only; independent of the 20-minute collection cache limit. */
   readonly maxObservationAgeSeconds: number;
 }
 
