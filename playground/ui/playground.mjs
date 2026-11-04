@@ -12,7 +12,6 @@ zh:{
 title:'模型游乐场',
 requestRecords:'请求记录',
 sessionRecords:'会话记录',
-generationTasks:'生成任务',
 search:'搜索模型',
 protocol:'协议',
 protocolAll:'全部协议',
@@ -25,7 +24,7 @@ retry:'重试',
 empty:'没有符合条件的已启用模型。',
 err403:'没有读取权限（需要 keys:read）。请联系管理员授权。',
 unsupported:'当前宿主不支持此插件所需的 API，请升级控制平面版本。',
-toolsHelp:'助手可以查询产品中的模型、请求和用量，也可以提出配置变更。执行变更前会展示操作内容，请你确认。',
+toolsHelp:'助手可以查询你有权查看的信息，并操作你有权使用的产品功能。它会先查阅可用功能说明，再调用相应接口；执行配置变更前会展示操作内容，请你确认。',
 imageGeneration:'生成图片',
 imageHelp:'使用所选模型调用 GPT Image 2 生成图片，图片会显示在对话中。',
 generatedImage:'生成的图片',
@@ -72,7 +71,6 @@ en:{
 title:'Model Playground',
 requestRecords:'Request records',
 sessionRecords:'Session records',
-generationTasks:'Generation tasks',
 search:'Search models',
 protocol:'Protocol',
 protocolAll:'All protocols',
@@ -85,7 +83,7 @@ retry:'Retry',
 empty:'No enabled models match the filters.',
 err403:'Missing read permission (keys:read required). Contact your administrator.',
 unsupported:'This host does not provide the APIs required by this plugin. Please upgrade the control plane.',
-toolsHelp:'The assistant can look up models, requests and usage, and propose configuration changes. You review and confirm each change before it runs.',
+toolsHelp:'The assistant can look up information you can access and use product features you have permission to operate. It first checks the available feature documentation, then calls the relevant APIs. You review and confirm configuration changes before they run.',
 imageGeneration:'Generate images',
 imageHelp:'Use the selected model to call GPT Image 2. Generated images appear in the conversation.',
 generatedImage:'Generated image',
@@ -414,7 +412,7 @@ const clearChat=()=>{if(busy)return;conversationRef.current={id:crypto.randomUUI
 const header=h('div',{style:{...styles.row,justifyContent:'space-between'}},
 h(Fluent.Text,{as:'h2',size:600,weight:'semibold'},t.title),
 typeof api.navigate==='function'&&h('div',{style:styles.row},
-[['requests',t.requestRecords],['sessions',t.sessionRecords],['generations',t.generationTasks]].map(([view,label])=>h(Fluent.Button,{key:view,size:'small',appearance:'subtle',onClick:()=>api.navigate(view)},label))));
+[['requests',t.requestRecords],['sessions',t.sessionRecords]].map(([view,label])=>h(Fluent.Button,{key:view,size:'small',appearance:'subtle',onClick:()=>api.navigate(view)},label))));
 
 const modelField=h('div',{style:{...styles.field,flex:'2 1 300px'}},
 h('label',{htmlFor:'mtp-model'},t.model),
@@ -485,7 +483,7 @@ Fluent=FluentHost;
 return defineOperatorUiPackage({
 apiVersion:'operator-ui-package-v1',
 pluginId:'mtc-text-playground',
-compatiblePluginVersions:['1.0.0','1.1.0'],
+compatiblePluginVersions:['1.0.0','1.1.0','1.1.1'],
 components:{workspace:Workspace,'open-model':OpenModel}
 });
 }

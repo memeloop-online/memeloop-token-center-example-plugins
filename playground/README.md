@@ -14,11 +14,11 @@ The adapter exposes `protocol: 'openai' | 'anthropic' | 'responses'`, `enableIma
 
 ## Review package
 
-The `verify playground package` GitHub Actions workflow creates `mtc-text-playground-1.1.0.tar.gz`, `SHA256SUMS` and `package-evidence.json`. The archive contains a complete plugin directory: manifest, one self-contained ESM asset, README and licenses. The evidence records the exact module digest and MemeLoop source revision. No CDN or relative module fetch is required.
+The `verify playground package` GitHub Actions workflow creates `mtc-text-playground-1.1.1.tar.gz`, `SHA256SUMS` and `package-evidence.json`. The archive contains a complete plugin directory: manifest, one self-contained ESM asset, README and licenses. The evidence records the exact module digest and MemeLoop source revision. No CDN or relative module fetch is required.
 
 Download the artifact from the pull request's Actions run and verify `sha256sum --check SHA256SUMS`. Extract the archive into a separate `mtc-text-playground` package directory. A development host configured to load that reviewed directory can inspect the two UI contributions. CI review artifacts are unsigned; production installation requires the administrator's normal signed OCI publication and trust policy. A source PR or review archive is not a signed production release.
 
-Version 1.1.0 requires the host's `ReactDOM` and `ReactJSXRuntime` activation bindings, the new `/internal/v1/inference/responses` endpoint and `conversation: { id, turn_id, parent_turn_id }` inference wrapper, in addition to `operator.model-route.action`, navigation context and generic authenticated API discovery. Deploy the core version providing both inference contracts before installing this plugin version; the UI sends conversation wrappers on Chat and Messages requests as well as Responses. The host controls scopes, active tenant and upstream routing for every request.
+Version 1.1.1 requires the host's `ReactDOM` and `ReactJSXRuntime` activation bindings, the new `/internal/v1/inference/responses` endpoint and `conversation: { id, turn_id, parent_turn_id }` inference wrapper, in addition to `operator.model-route.action`, navigation context and generic authenticated API discovery. Deploy the core version providing both inference contracts before installing this plugin version; the UI sends conversation wrappers on Chat and Messages requests as well as Responses. The host controls scopes, active tenant and upstream routing for every request.
 
 ## Build
 
