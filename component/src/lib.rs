@@ -53,9 +53,11 @@ fn rows(source: &Source, body: &Value) -> Result<(Option<String>, Vec<Value>), S
     for item in input {
         if source.normalizer == "aixhan_v1" {
             let mut newest: Option<(Option<String>, &Value)> = None;
+            let mut history: Vec<(String, &Value)> = Vec::new();
             for value in item.get("latest").filter(|v| v.is_object()).into_iter()
                 .chain(item["items"].as_array().into_iter().flatten()) {
                 let checked = date(&value["checkedAt"]);
+                if let Some(at) = &checked { history.push((at.clone(), value)); }
                 // Prefer the declared latest observation on timestamp ties, like the TS adapter.
                 if newest.as_ref().is_none_or(|(best,_)| &checked > best) { newest = Some((checked,value)); }
             }
@@ -71,9 +73,6 @@ fn rows(source: &Source, body: &Value) -> Result<(Option<String>, Vec<Value>), S
                 "status": status, "latencyMs": bounded(&latest["latencyMs"], 86400000.0),
                 "pingLatencyMs": bounded(&latest["pingLatencyMs"], 86400000.0),
                 "checkedAt": date(&latest["checkedAt"]), "message": nullable_text(&latest["message"])});
-            let mut history: Vec<(String, &Value)> = item.get("latest").filter(|v| v.is_object()).into_iter()
-                .chain(item["items"].as_array().into_iter().flatten())
-                .filter_map(|v| date(&v["checkedAt"]).map(|at| (at, v))).collect();
             // Prefer latest on equal timestamps, matching the selected observation.
             history.sort_by(|a,b| b.0.cmp(&a.0));
             history.dedup_by(|a,b| a.0 == b.0);

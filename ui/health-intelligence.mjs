@@ -72,7 +72,7 @@ const STRINGS = {
   degraded: { en: 'Degraded', zh: '降级' },
   unknown: { en: 'Unknown', zh: '未知' },
   sourceOld: { en: 'Older source observations', zh: '来源采样较早' },
-  sourceUnknown: { en: 'Source time not provided', zh: '来源未提供采样时间' },
+  sourceUnknown: { en: 'Source time not provided', zh: '采样时间待提供' },
   sourceOldHelp: { en: 'Collection succeeded. The source still publishes these older observations.', zh: '已取得来源数据；来源当前发布的采样时间较早。' },
   cachedHelp: { en: 'Showing a cached result. Collection has not produced a newer snapshot yet.', zh: '正在显示缓存结果，尚未取得新的采集快照。' },
   missingHelp: { en: 'Source observation time awaits publication. Collection time is shown separately.', zh: '采样时间待来源提供，采集时间单独展示。' },
@@ -158,14 +158,14 @@ export function comparisonOption(source, field, title, percent = false) {
     animation: false, aria: { enabled: true },
     tooltip: { trigger: 'axis', renderMode: 'richText', confine: true },
     grid: { left: 8, right: 38, top: 28, bottom: 12, containLabel: true },
-    xAxis: { type: 'value', name: title, nameLocation: 'middle', nameGap: 18,
+    xAxis: { type: 'value', name: percent ? '%' : field === 'averageCostUsd' ? 'USD' : field.endsWith('Ms') ? 'ms' : 'IQ', nameLocation: 'middle', nameGap: 18,
       position: 'top', ...(percent ? { max: 100 } : {}), axisLabel: { formatter: percent ? '{value}%' : '{value}' } },
     yAxis: { type: 'category', inverse: true, data: rows.map(label),
       axisLabel: { width: 105, overflow: 'truncate', fontSize: 11 } },
     series: [{ type: 'bar', name: title, barMaxWidth: 18,
       data: rows.map(row => field === 'latencyMs' ? { value: row[field],
         itemStyle: { color: ({ operational: '#27845e', degraded: '#b77a19', error: '#c34e4e', unknown: '#7b8593' })[row.status] || '#7b8593' } }
-        : percent ? Math.round(row[field] * 1000) / 10 : row[field]),
+        : percent ? Math.round(row[field] * 1000) / 10 : Math.round(row[field] * 100) / 100),
       label: { show: true, position: 'right', fontSize: 10, formatter: percent ? '{c}%' : '{c}' } }],
   };
 }
@@ -198,12 +198,6 @@ export function activateOperatorUi(host) {
     Link,
     Spinner,
     Select,
-    Table,
-    TableBody,
-    TableCell,
-    TableHeader,
-    TableHeaderCell,
-    TableRow,
     Text,
     makeStyles,
     mergeClasses,
@@ -309,7 +303,7 @@ export function activateOperatorUi(host) {
       props.api.loadServiceData(ENDPOINT_ID, controller.signal).then((response) => {
         if (!active) return;
         const data = runtimeSnapshot(response);
-        const captured = response.provenance?.fetched_at;
+        const captured = data.generatedAt === null ? null : response.provenance?.fetched_at;
         setSnapshot({ ...data, collectionFetchedAt: typeof captured === 'number' && Number.isFinite(captured)
           && captured > 0 && captured <= Date.now() + MAX_CLOCK_SKEW_MS ? new Date(captured).toISOString() : null });
         setFailure(null);
