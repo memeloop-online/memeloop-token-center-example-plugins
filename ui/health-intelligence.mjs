@@ -43,7 +43,7 @@ export function runtimeSnapshot(response, now = Date.now()) {
   const data = response.data;
   const sources = snapshotSources(data);
   if (!response.partial && freshness === 'fresh') return data;
-  return { ...data, ...(freshness === 'unavailable' ? { generatedAt: null } : {}), sources: sources.map((source) => ({ ...source,
+  return { ...data, collectionStale: true, ...(freshness === 'unavailable' ? { generatedAt: null } : {}), sources: sources.map((source) => ({ ...source,
     ...(freshness === 'unavailable' ? { fetchedAt: null, sourceUpdatedAt: null } : {}),
     status: source.status === 'error' || freshness === 'unavailable' ? 'error' : 'stale',
   })) };
@@ -128,6 +128,7 @@ function columnsOf(rows) {
 
 export function freshnessReason(source, now = Date.now()) {
   if (!source || source.status === 'error') return 'error';
+  if (source.collectionStale) return 'stale';
   const fetched = Date.parse(source.fetchedAt);
   if (!Number.isFinite(fetched) || fetched > now + MAX_CLOCK_SKEW_MS
       || now - fetched > STALE_FETCH_AGE_MS) return 'stale';
@@ -158,7 +159,9 @@ export function comparisonOption(source, field, title, percent = false) {
     yAxis: { type: 'category', inverse: true, data: rows.map(label),
       axisLabel: { width: 105, overflow: 'truncate', fontSize: 11 } },
     series: [{ type: 'bar', name: title, barMaxWidth: 18,
-      data: rows.map(row => percent ? Math.round(row[field] * 1000) / 10 : row[field]),
+      data: rows.map(row => field === 'latencyMs' ? { value: row[field],
+        itemStyle: { color: ({ operational: '#27845e', degraded: '#b77a19', error: '#c34e4e', unknown: '#7b8593' })[row.status] || '#7b8593' } }
+        : percent ? Math.round(row[field] * 1000) / 10 : row[field]),
       label: { show: true, position: 'right', fontSize: 10, formatter: percent ? '{c}%' : '{c}' } }],
   };
 }
@@ -411,6 +414,9 @@ export function activateOperatorUi(host) {
       const hasHistory = source.id === 'aixhan' && rows.some(row => row.sample0At);
       return h('div', { className: styles.chart },
         h(Caption1, null, lang === 'zh' ? `图中最多展示 12 条，完整数值见下方记录。` : 'Chart shows up to 12 records. All collected values are listed below.'),
+        source.id === 'aixhan' ? h('div', { className: styles.cardHeader }, ['operational', 'degraded', 'error', 'unknown'].map(status =>
+          h(Badge, { key: status, appearance: 'tint', color: ({ operational: 'success', degraded: 'warning', error: 'danger', unknown: 'subtle' })[status] },
+            `${text(STRINGS[status])} ${rows.filter(row => (['operational','degraded','error'].includes(row.status) ? row.status : 'unknown') === status).length}`))) : null,
         count ? chart(comparisonOption(source, field, label, field === 'passRate'), label, Math.max(180, count * 38 + 58))
           : h(Caption1, null, text(STRINGS.noMetric)),
         hasHistory ? h('div', null,
@@ -419,11 +425,15 @@ export function activateOperatorUi(host) {
               'aria-label': lang === 'zh' ? '选择探测提供方' : 'Select checked provider' },
               rows.map(row => h('option', { key: row.key, value: row.key }, row.name || row.key)))),
           chart(historyOption(selected, text(STRINGS.history)), text(STRINGS.history), 220),
-          h(Caption1, null, text(STRINGS.historyHelp))) : null);
+          h(Caption1, null, text(STRINGS.historyHelp)),
+          h('details', null, h('summary', null, lang === 'zh' ? '查看近期检查数值' : 'Recent check values'),
+            h('ul', { style: { paddingInlineStart: 20, overflowWrap: 'anywhere' } }, Array.from({ length: 6 }, (_, index) =>
+              selected[`sample${index}At`] ? h('li', { key: index },
+                `${formatDate(selected[`sample${index}At`])} · ${formatCell('status', selected[`sample${index}Status`])} · ${formatCell('latencyMs', selected[`sample${index}LatencyMs`])} ms`) : null)))) : null);
     };
 
     const renderSource = (source) => {
-      const status = freshnessReason({ ...source, fetchedAt: snapshot.collectionFetchedAt || source.fetchedAt }, now);
+      const status = freshnessReason({ ...source, collectionStale: snapshot.collectionStale, fetchedAt: snapshot.collectionFetchedAt || source.fetchedAt }, now);
       const sourceHref = safeSourceHref(source.pageUrl);
       const metaItems = [
         `${text(STRINGS.fetchedAt)}: ${formatDate(snapshot.collectionFetchedAt)}`,
