@@ -95,7 +95,13 @@ fn rows(source: &Source, body: &Value) -> Result<(Option<String>, Vec<Value>), S
                     "softwareIq":num(&item["software_iq"]),"visualIq":num(&item["visual_iq"]),"samples":samples(&item["samples"])}));
             } else {
                 let Some(rate) = fraction(&item["pass_rate"]) else { continue; };
+                let config = text(&item["config"]);
+                let harness = text(&item["harness"]);
+                let id: String = if !config.is_empty() { config.clone() }
+                    else if harness.is_empty() { id } else { format!("{id}:{harness}") }.chars().take(180).collect();
                 result.push(json!({"key":id,"model":model,"effort":effort,"passRate":rate,
+                    "harness":nullable_text(&item["harness"]),"config":nullable_text(&item["config"]),
+                    "provider":nullable_text(&item["provider"]),"costBasis":nullable_text(&item["cost_basis"]),
                     "passAt4":fraction(&item["pass_at_4"]),"averageCostUsd":bounded(&item["mean_cost_usd"],1e6),
                     "outputTokens":bounded(&item["mean_output_tokens"],f64::MAX),
                     "agentSteps":bounded(&item["mean_agent_steps"],f64::MAX),"samples":samples(&item["n_attempted"])}));
@@ -204,7 +210,8 @@ fn valid_compact_rows(source: &Source, value: &CompactSource) -> bool {
             "software_iq":r["softwareIq"],"visual_iq":r["visualIq"],"samples":r["samples"]}),
         "deepswe_v1" => json!({"model":r["model"],"reasoning_effort":r["effort"],"pass_rate":r["passRate"],
             "pass_at_4":r["passAt4"],"mean_cost_usd":r["averageCostUsd"],"mean_output_tokens":r["outputTokens"],
-            "mean_agent_steps":r["agentSteps"],"n_attempted":r["samples"]}),
+            "mean_agent_steps":r["agentSteps"],"n_attempted":r["samples"],
+            "harness":r["harness"],"config":r["config"],"provider":r["provider"],"cost_basis":r["costBasis"]}),
         _ => {
             let history: Vec<Value> = (0..6).filter_map(|index| {
                 r.get(format!("sample{index}At")).map(|at| json!({"checkedAt":at,

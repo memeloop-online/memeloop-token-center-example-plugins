@@ -33,7 +33,7 @@ export function runtimeSnapshot(response, now = Date.now()) {
   if (freshness === undefined) {
     const fetched = provenance.fetched_at;
     freshness = provenance.source === 'fallback' ? 'unavailable'
-      : response.partial || provenance.source === 'stale_cache'
+      : (response.partial && !response.data?.sources?.some(source => source.status === 'error')) || provenance.source === 'stale_cache'
         || !Number.isFinite(fetched) || fetched > now + MAX_CLOCK_SKEW_MS
         || now - fetched > STALE_FETCH_AGE_MS ? 'stale' : 'fresh';
   }
@@ -42,7 +42,7 @@ export function runtimeSnapshot(response, now = Date.now()) {
   }
   const data = response.data;
   const sources = snapshotSources(data);
-  if (!response.partial && freshness === 'fresh') return data;
+  if (freshness === 'fresh') return data;
   return { ...data, collectionStale: true, ...(freshness === 'unavailable' ? { generatedAt: null } : {}), sources: sources.map((source) => ({ ...source,
     ...(freshness === 'unavailable' ? { fetchedAt: null, sourceUpdatedAt: null } : {}),
     status: source.status === 'error' || freshness === 'unavailable' ? 'error' : 'stale',
@@ -63,7 +63,7 @@ const STRINGS = {
   emptySources: { en: 'Awaiting source data', zh: '等待来源数据' },
   updated: { en: 'Updated', zh: '更新于' },
   unavailable: { en: 'Source data is currently unavailable. Collection retries automatically.', zh: '暂时无法获取来源数据，系统会自动重试采集。' },
-  refreshHelp: { en: 'Refresh reloads collected results; each source publishes on its own schedule. Public benchmarks and third-party probes do not affect request routing.', zh: '刷新读取最近采集结果；来源按各自周期发布。公开评测与第三方探测仅供参考，不影响请求路由。' },
+  refreshHelp: { en: 'Refresh reloads collected results; each source publishes on its own schedule. Public benchmarks and third-party probes provide reference data.', zh: '刷新读取最近采集结果；来源按各自周期发布。公开评测与第三方探测用于辅助比较。' },
   retryHelp: { en: 'Please retry. If the issue persists, check the plugin service status.', zh: '请重试；若问题持续，请检查插件服务状态。' },
   ok: { en: 'Collected', zh: '采集正常' },
   stale: { en: 'Cached result', zh: '缓存待刷新' },
@@ -75,13 +75,13 @@ const STRINGS = {
   sourceUnknown: { en: 'Source time not provided', zh: '来源未提供采样时间' },
   sourceOldHelp: { en: 'Collection succeeded. The source still publishes these older observations.', zh: '已取得来源数据；来源当前发布的采样时间较早。' },
   cachedHelp: { en: 'Showing a cached result. Collection has not produced a newer snapshot yet.', zh: '正在显示缓存结果，尚未取得新的采集快照。' },
-  missingHelp: { en: 'Collection time is known; the age of the source observations cannot be verified.', zh: '采集时间不代表采样时间；无法确认来源数据的年龄。' },
+  missingHelp: { en: 'Source observation time awaits publication. Collection time is shown separately.', zh: '采样时间待来源提供，采集时间单独展示。' },
   details: { en: 'All collected records', zh: '查看全部采集记录' },
   noChart: { en: 'Chart unavailable; all values are listed below.', zh: '当前无法显示图表，可查看下方完整数值。' },
   noMetric: { en: 'No valid values for this metric', zh: '此指标暂无有效数值' },
   history: { en: 'Recent response-start observations', zh: '近期开始响应耗时' },
-  historyHelp: { en: 'Up to six actual checks per provider. Gaps are missing values, not zero latency.', zh: '每个提供方最多展示最近 6 次实际检查；缺失值保留为空，不按零延迟绘制。' },
-  scopeHealth: { en: 'Third-party provider checks, not the health of your configured accounts. Latency is time until the upstream begins responding, not generation speed.', zh: '展示第三方提供方探测，不代表本站账号健康。耗时指上游开始响应的等待时间，不代表生成速度。' },
+  historyHelp: { en: 'Up to six actual checks per provider. Missing values appear as gaps.', zh: '每个提供方最多展示最近 6 次实际检查；缺失值以断点显示。' },
+  scopeHealth: { en: 'Third-party provider checks. Latency measures the wait until the upstream begins responding.', zh: '第三方提供方探测；耗时为上游开始响应前的等待时间。' },
   scopeRadar: { en: 'Codex Radar benchmark IQ scores. Compare only within this source and reasoning setting.', zh: 'Codex Radar 的 IQ 评测分数，仅在同一来源与推理档位下比较。' },
   scopeSwe: { en: 'DeepSWE engineering benchmark; pass rate and Pass@4 have different meanings. Cost is the source estimate in USD.', zh: 'DeepSWE 工程评测；单次通过率与 Pass@4 含义不同。成本为来源估算，单位美元。' },
   records: { en: 'Collected records (up to 24)', zh: '已采集记录（最多 24 条）' },
@@ -100,9 +100,13 @@ const COLUMN_LABELS = {
   samples: { en: 'Samples', zh: '样本数' },
   passRate: { en: 'Pass rate', zh: '通过率' },
   passAt4: { en: 'Pass@4', zh: 'Pass@4' },
-  averageCostUsd: { en: 'Avg cost', zh: '平均成本' },
+  averageCostUsd: { en: 'Avg cost (USD)', zh: '平均成本 (USD)' },
   outputTokens: { en: 'Output tokens', zh: '输出词元' },
   agentSteps: { en: 'Agent steps', zh: '代理步骤' },
+  harness: { en: 'Harness', zh: '评测脚手架' },
+  provider: { en: 'Provider', zh: '提供方' },
+  config: { en: 'Configuration', zh: '评测配置' },
+  costBasis: { en: 'Source cost basis', zh: '来源计价依据' },
   providerType: { en: 'Provider type', zh: '提供方类型' },
   status: { en: 'Status', zh: '状态' },
   latencyMs: { en: 'Response start (ms)', zh: '开始响应耗时 (ms)' },
@@ -149,7 +153,7 @@ export function isRuntimeStale(source, now) {
 // Canvas tooltips avoid interpreting upstream labels as HTML.
 export function comparisonOption(source, field, title, percent = false) {
   const rows = (source.rows || []).filter(row => typeof row?.[field] === 'number' && Number.isFinite(row[field])).slice(0, 12);
-  const label = row => [row.name || row.model || row.key, row.effort].filter(Boolean).join(' · ');
+  const label = row => [row.name || row.model || row.key, row.effort, row.harness].filter(Boolean).join(' · ');
   return {
     animation: false, aria: { enabled: true },
     tooltip: { trigger: 'axis', renderMode: 'richText', confine: true },
@@ -193,6 +197,7 @@ export function activateOperatorUi(host) {
     Caption1,
     Link,
     Spinner,
+    Select,
     Table,
     TableBody,
     TableCell,
@@ -288,6 +293,7 @@ export function activateOperatorUi(host) {
     const [initialLoading, setInitialLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [reloadKey, setReloadKey] = useState(0);
+    const [metrics, setMetrics] = useState({});
     const [healthKey, setHealthKey] = useState('');
     const [now, setNow] = useState(() => Date.now());
 
@@ -406,22 +412,37 @@ export function activateOperatorUi(host) {
     const renderCharts = (source) => {
       const rows = Array.isArray(source.rows) ? source.rows.slice(0, MAX_ROWS) : [];
       if (!rows.length) return null;
-      const field = source.id === 'aixhan' ? 'latencyMs' : source.id === 'deepswe' ? 'passRate' : source.id === 'codexradar' ? 'iq' : null;
-      if (!field) return null;
+      const choices = source.id === 'aixhan' ? ['latencyMs', 'pingLatencyMs', 'status']
+        : source.id === 'deepswe' ? ['passRate', 'passAt4', 'averageCostUsd']
+        : source.id === 'codexradar' ? ['iq', 'softwareIq', 'visualIq'] : [];
+      if (!choices.length) return null;
+      const field = choices.includes(metrics[source.id]) ? metrics[source.id] : choices[0];
       const label = columnLabel(field);
       const count = rows.filter(row => typeof row[field] === 'number').slice(0, 12).length;
       const selected = rows.find(row => row.key === healthKey) || rows[0];
       const hasHistory = source.id === 'aixhan' && rows.some(row => row.sample0At);
       return h('div', { className: styles.chart },
+        h('label', null, lang === 'zh' ? '图表指标 ' : 'Chart metric ',
+          h(Select || 'select', { className: styles.select, value: field,
+            onChange: event => setMetrics(value => ({ ...value, [source.id]: event.target.value })),
+            'aria-label': `${source.label} ${lang === 'zh' ? '图表指标' : 'chart metric'}` },
+            choices.map(value => h('option', { key: value, value }, columnLabel(value))))),
         h(Caption1, null, lang === 'zh' ? `图中最多展示 12 条，完整数值见下方记录。` : 'Chart shows up to 12 records. All collected values are listed below.'),
         source.id === 'aixhan' ? h('div', { className: styles.cardHeader }, ['operational', 'degraded', 'error', 'unknown'].map(status =>
           h(Badge, { key: status, appearance: 'tint', color: ({ operational: 'success', degraded: 'warning', error: 'danger', unknown: 'subtle' })[status] },
             `${text(STRINGS[status])} ${rows.filter(row => (['operational','degraded','error'].includes(row.status) ? row.status : 'unknown') === status).length}`))) : null,
-        count ? chart(comparisonOption(source, field, label, field === 'passRate'), label, Math.max(180, count * 38 + 58))
+        field === 'status' ? chart({ animation: false, aria: { enabled: true },
+          tooltip: { trigger: 'axis', renderMode: 'richText', confine: true },
+          grid: { left: 8, right: 20, top: 20, bottom: 16, containLabel: true },
+          xAxis: { type: 'category', data: ['operational', 'degraded', 'error', 'unknown'].map(value => text(STRINGS[value])) },
+          yAxis: { type: 'value', minInterval: 1, name: lang === 'zh' ? '提供方数' : 'Providers' },
+          series: [{ type: 'bar', data: ['operational', 'degraded', 'error', 'unknown'].map(value => rows.filter(row =>
+            (['operational','degraded','error'].includes(row.status) ? row.status : 'unknown') === value).length) }],
+        }, label, 220) : count ? chart(comparisonOption(source, field, label, ['passRate', 'passAt4'].includes(field)), label, Math.max(180, count * 38 + 58))
           : h(Caption1, null, text(STRINGS.noMetric)),
         hasHistory ? h('div', null,
           h('label', null, text(STRINGS.history), ' ',
-            h('select', { className: styles.select, value: selected.key, onChange: event => setHealthKey(event.target.value),
+            h(Select || 'select', { className: styles.select, value: selected.key, onChange: event => setHealthKey(event.target.value),
               'aria-label': lang === 'zh' ? '选择探测提供方' : 'Select checked provider' },
               rows.map(row => h('option', { key: row.key, value: row.key }, row.name || row.key)))),
           chart(historyOption(selected, text(STRINGS.history)), text(STRINGS.history), 220),
@@ -438,7 +459,7 @@ export function activateOperatorUi(host) {
       const metaItems = [
         `${text(STRINGS.fetchedAt)}: ${formatDate(snapshot.collectionFetchedAt)}`,
         `${source.id === 'aixhan' ? (lang === 'zh' ? '最近探测' : 'Latest check') : (lang === 'zh' ? '来源数据发布' : 'Source data published')}: ${formatDate(source.sourceUpdatedAt)}`,
-        `${lang === 'zh' ? '来源响应时间（HTTP Date）' : 'Source response time (HTTP Date)'}: ${formatDate(source.fetchedAt)}`,
+        `${lang === 'zh' ? '来源响应 / 采集时间' : 'Source response / collection time'}: ${formatDate(source.fetchedAt)}`,
       ];
       if (source.error || status === 'error') metaItems.push(text(STRINGS.unavailable));
       if (status === 'sourceOld') metaItems.push(text(STRINGS.sourceOldHelp));

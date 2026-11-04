@@ -19,6 +19,17 @@ describe('signed operator UI module', () => {
     expect(module.runtimeSnapshot({ data, partial: false, provenance }).sources[0].status).toBe('stale');
     expect(module.runtimeSnapshot({ data, partial: false, provenance: { ...provenance, freshness: 'unavailable' } }).sources[0].status).toBe('error');
   });
+  it('keeps successful sources fresh when another source fails in a partial network result', async () => {
+    const module = await import(url);
+    const now = Date.now();
+    const data = { sources: [{ id: 'deepswe', status: 'ok', rows: [] }, { id: 'aixhan', status: 'error', rows: [] }] };
+    const provenance = { plugin_id: 'mtc-health-intelligence', endpoint_id: 'health-intelligence',
+      source: 'network', fetched_at: now, freshness: 'fresh' };
+    expect(module.runtimeSnapshot({ data, partial: true, provenance }, now)).toBe(data);
+    expect(module.runtimeSnapshot({ data, partial: true, provenance: { ...provenance, freshness: undefined } }, now)).toBe(data);
+    expect(module.runtimeSnapshot({ data, partial: true, provenance: { ...provenance, freshness: 'stale' } }, now).sources[0].status).toBe('stale');
+  });
+
   it('renders network and cache responses from the pinned host without a freshness field', async () => {
     const module = await import(url);
     const now = Date.parse('2026-09-19T00:00:00Z');

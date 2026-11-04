@@ -125,10 +125,15 @@ export function normalizeDeepSwe(payload: unknown): NormalizedDeepSwe {
     const cost = row ? finiteNumber(row.mean_cost_usd) : null;
     const outputTokens = row ? finiteNumber(row.mean_output_tokens) : null;
     const agentSteps = row ? finiteNumber(row.mean_agent_steps) : null;
+    const harness = row ? requiredText(row.harness) : null;
+    const config = row ? requiredText(row.config) : null;
     rows.push({
-      key: `${model}:${effort}`.slice(0, 180),
+      key: (config ?? [model, effort, harness].filter(Boolean).join(':')).slice(0, 180),
       model,
       effort,
+      harness, config,
+      provider: row ? requiredText(row.provider) : null,
+      costBasis: row ? requiredText(row.cost_basis) : null,
       passRate,
       passAt4,
       averageCostUsd: cost !== null && cost >= 0 && cost <= 1_000_000 ? cost : null,

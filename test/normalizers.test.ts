@@ -33,6 +33,15 @@ describe('public source normalizers', () => {
     expect(result.sourceUpdatedAt).toBe('2026-09-22T06:27:15.860Z');
   });
 
+  it('keeps distinct benchmark configurations and their published cost basis', () => {
+    const result = normalizeDeepSwe({ rows: [
+      { model: 'same', reasoning_effort: 'high', pass_rate: 0.8, harness: 'harness-a', config: 'run-a', provider: 'source-a', cost_basis: 'Published USD estimate' },
+      { model: 'same', reasoning_effort: 'high', pass_rate: 0.7, harness: 'harness-b', config: 'run-b' },
+    ] });
+    expect(result.rows.map(row => row.key)).toEqual(['run-a', 'run-b']);
+    expect(result.rows[0]).toMatchObject({ harness: 'harness-a', provider: 'source-a', costBasis: 'Published USD estimate' });
+  });
+
   it('preserves bounded, ordered actual health checks without inventing missing latency', () => {
     const result = normalizeAixHan({ providerTimelines: [{ latest: {
       id: 'p', name: 'Provider', status: 'error', checkedAt: '2026-11-04T20:29:00Z', latencyMs: null,
