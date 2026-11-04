@@ -53,11 +53,21 @@ fn rows(source: &Source, body: &Value) -> Result<(Option<String>, Vec<Value>), S
     for item in input {
         if source.normalizer == "aixhan_v1" {
             let mut newest: Option<(Option<String>, &Value)> = None;
-            let mut history: Vec<(String, &Value)> = Vec::new();
+            let mut history: Vec<(String, &Value)> = Vec::with_capacity(6);
+            let mut date_cache = std::collections::BTreeMap::<&str, Option<String>>::new();
             for value in item.get("latest").filter(|v| v.is_object()).into_iter()
                 .chain(item["items"].as_array().into_iter().flatten()) {
-                let checked = date(&value["checkedAt"]);
-                if let Some(at) = &checked { history.push((at.clone(), value)); }
+                let checked = value["checkedAt"].as_str().and_then(|raw|
+                    date_cache.entry(raw).or_insert_with(|| date(&value["checkedAt"])).clone());
+                if let Some(at) = &checked {
+                    if !history.iter().any(|(seen,_)| seen == at) {
+                        let position = history.iter().position(|(seen,_)| seen < at).unwrap_or(history.len());
+                        if position < 6 {
+                            history.insert(position, (at.clone(),value));
+                            history.truncate(6);
+                        }
+                    }
+                }
                 // Prefer the declared latest observation on timestamp ties, like the TS adapter.
                 if newest.as_ref().is_none_or(|(best,_)| &checked > best) { newest = Some((checked,value)); }
             }
@@ -73,9 +83,7 @@ fn rows(source: &Source, body: &Value) -> Result<(Option<String>, Vec<Value>), S
                 "status": status, "latencyMs": bounded(&latest["latencyMs"], 86400000.0),
                 "pingLatencyMs": bounded(&latest["pingLatencyMs"], 86400000.0),
                 "checkedAt": date(&latest["checkedAt"]), "message": nullable_text(&latest["message"])});
-            // Prefer latest on equal timestamps, matching the selected observation.
-            history.sort_by(|a,b| b.0.cmp(&a.0));
-            history.dedup_by(|a,b| a.0 == b.0);
+            // The bounded history is newest first; equal timestamps retain latest/first.
             for (index,(at,observation)) in history.iter().take(6).enumerate() {
                 row[format!("sample{index}At")] = json!(at);
                 let status = text(&observation["status"]).to_lowercase();
