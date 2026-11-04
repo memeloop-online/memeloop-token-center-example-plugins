@@ -177,8 +177,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let source = &snapshot["sources"][2];
             assert_eq!(source["sourceUpdatedAt"], "2026-09-07T08:30:00.000Z");
             let row = source["rows"].as_array().unwrap().iter().find(|r| r["key"] == "mixed-one").unwrap();
-            assert_eq!(row["name"], "newer");
-            assert_eq!(row["status"], "operational");
+            // Equal observation times retain the first item, matching the TS stable sort.
+            assert_eq!(row["name"], "earlier-tie");
+            assert_eq!(row["status"], "error");
             assert_eq!(row["checkedAt"], "2026-09-07T08:00:00.000Z");
         }
     }
