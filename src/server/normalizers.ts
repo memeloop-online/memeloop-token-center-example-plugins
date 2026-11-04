@@ -105,7 +105,11 @@ export function normalizeCodexRadar(payload: unknown): NormalizedCodexRadar {
   if (pointValues.length > 0 && rows.length === 0) throw new InvalidPayloadError();
   rows.sort((left, right) => right.iq - left.iq || left.key.localeCompare(right.key));
   return {
-    sourceUpdatedAt: isoDate(body.source_updated_at) ?? isoDate(body.generated_at),
+    // The public page accepts a timestamp map as well as a single timestamp.
+    sourceUpdatedAt: record(body.source_updated_at)
+      ? Object.values(record(body.source_updated_at)!).map(isoDate)
+        .filter((value): value is string => value !== null).sort().at(-1) ?? null
+      : isoDate(body.source_updated_at) ?? isoDate(body.generated_at),
     rows: rows.slice(0, MAX_ROWS),
   };
 }

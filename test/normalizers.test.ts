@@ -11,6 +11,15 @@ describe('public source normalizers', () => {
     expect(result.rows[0]).not.toHaveProperty('raw');
   });
 
+  it('uses the newest actual Codex Radar source timestamp and keeps an undated source map unknown', () => {
+    expect(normalizeCodexRadar({ comprehensive_points: [], generated_at: '2026-11-04T00:00:00Z',
+      source_updated_at: { software: '2026-09-22T00:00:00Z', visual: '2026-09-23T00:00:00Z', invalid: 'unknown' },
+    }).sourceUpdatedAt).toBe('2026-09-23T00:00:00.000Z');
+    expect(normalizeCodexRadar({ comprehensive_points: [], generated_at: '2026-11-04T00:00:00Z',
+      source_updated_at: { software: null },
+    }).sourceUpdatedAt).toBeNull();
+  });
+
   it('normalizes DeepSWE rates and efficiency metrics', () => {
     const result = normalizeDeepSwe(fixture('deepswe.json'));
     expect(result.sourceUpdatedAt).toBe('2026-09-03T22:24:37.984Z');

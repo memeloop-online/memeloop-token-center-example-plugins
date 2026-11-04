@@ -41,7 +41,9 @@ fn bounded(value: &Value, max: f64) -> Value {
 }
 fn rows(source: &Source, body: &Value) -> Result<(Option<String>, Vec<Value>), String> {
     let (key, updated) = match source.normalizer.as_str() {
-        "codexradar_v1" => ("comprehensive_points", date(&body["source_updated_at"]).or_else(|| date(&body["generated_at"]))),
+        "codexradar_v1" => ("comprehensive_points", if let Some(values) = body["source_updated_at"].as_object() {
+            values.values().filter_map(date).max()
+        } else { date(&body["source_updated_at"]).or_else(|| date(&body["generated_at"])) }),
         "deepswe_v1" => ("rows", date(&body["generated_at"])),
         "aixhan_v1" => ("providerTimelines", None),
         _ => return Err("invalid_normalizer".into()),
