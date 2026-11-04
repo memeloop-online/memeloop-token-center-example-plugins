@@ -105,10 +105,12 @@ try {
   assert.deepEqual(await page.evaluate(() => window.requests.filter(r => r.method === 'PUT').at(-1).body), { enabled: false, expected_revision: 8 });
   await open('readonly'); await ready();
   assert.equal(await page.getByRole('switch').isDisabled(), true);
-  await page.getByText('当前仅可查看此账号的自动使用设置。', { exact: true }).waitFor(); await screenshot('readonly');
+  await page.getByText('可查看当前设置。如需修改，请联系管理员。', { exact: true }).waitFor(); await screenshot('readonly');
   for (const mode of ['unknown', 'accepted']) {
     await open(mode); await ready();
-    await page.getByText(mode === 'unknown' ? '上次重置结果尚未确认，系统会继续核实。请勿重复重置。' : '已提交一次重置，正在核实结果。', { exact: true }).waitFor();
+    await page.getByText(mode === 'unknown' ? '上次重置结果正在核实，可在当前账号查看重置记录。' : '已提交一次重置，正在核实结果。', { exact: true }).waitFor();
+    assert.equal(await page.locator('dd').filter({ hasText: '结果核实中' }).count(), 1);
+    assert.equal(await page.getByText('已使用一次', { exact: true }).count(), 0);
     await page.getByRole('switch').click(); await page.getByText('自动使用已开启', { exact: true }).waitFor();
     await page.getByRole('switch').click(); await page.getByText('自动使用已关闭', { exact: true }).waitFor();
     assert.equal(await page.evaluate(() => window.requests.some(r => r.method === 'POST')), false);
@@ -118,12 +120,12 @@ try {
   await page.getByText('设置已被其他操作更新。请刷新状态后确认。', { exact: true }).waitFor();
   assert.equal(await page.getByRole('switch').isDisabled(), true);
   await open('save-unknown'); await ready(); await page.getByRole('switch').click();
-  await page.getByText('尚未确认设置是否保存成功。请刷新状态后确认，再继续修改。', { exact: true }).waitFor();
+  await page.getByText('保存结果待确认。刷新状态查看最新设置。', { exact: true }).waitFor();
   assert.equal(await page.getByRole('switch').isDisabled(), true);
   checks.push('configured grant preserved, read-only permissions, unknown and accepted result handling, conflict and uncertain save recovery');
   await open('quota-error'); await ready();
   assert.equal(await page.getByRole('switch').isEnabled(), true);
-  await page.getByText('次数或到期时间暂不可用，系统会在执行前重新检查。', { exact: true }).waitFor(); await screenshot('quota-unavailable');
+  await page.getByText('查看或刷新账号额度后可更新次数与到期时间。', { exact: true }).waitFor(); await screenshot('quota-unavailable');
   await open('error'); await ready();
   assert.equal(await page.getByRole('switch').isDisabled(), true); await screenshot('permission-error');
   await open('loading'); await page.getByText('正在读取自动使用设置…', { exact: true }).waitFor();

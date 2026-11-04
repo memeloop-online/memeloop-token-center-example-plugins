@@ -14,7 +14,7 @@ jobs:
     env:
       CARGO_BUILD_JOBS: 2
       CARGO_PROFILE_TEST_DEBUG: 0
-      CANDIDATE_HOST: e8b39d456118a8180a4b8004b09825144106aff2
+      CANDIDATE_HOST: 0af7bdabf4f264ca5bf5fa949f36ed9e09e49155
     services:
       postgres:
         image: postgres:16-alpine

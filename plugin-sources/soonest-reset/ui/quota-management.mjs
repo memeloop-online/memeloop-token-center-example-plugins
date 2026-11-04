@@ -5,34 +5,34 @@ const copy = {
   zh: {
     title: '自动使用手动重置次数', toggle: '在手动重置次数到期前 10 分钟自动使用',
     help: '开启后，系统会检查此账号的可用次数与到期时间，在到期前 10 分钟内自动使用一次。关闭后停止后续自动使用，已提交的重置仍会继续核实。',
-    loading: '正在读取自动使用设置…', saving: '正在保存…', readonly: '当前仅可查看此账号的自动使用设置。',
+    loading: '正在读取自动使用设置…', saving: '正在保存…', readonly: '可查看当前设置。如需修改，请联系管理员。',
     enabled: '自动使用已开启', disabled: '自动使用已关闭', count: '可用次数', expiry: '最近到期时间', result: '最近结果',
     refresh: '刷新状态', refreshNeeded: '待刷新', none: '暂无可用次数', waiting: '等待自动检查',
-    verify: '结果待核实', blocked: '已暂停，待检查', used: '已使用一次', verified: '已核实',
-    unknown: '上次重置结果尚未确认，系统会继续核实。请勿重复重置。',
+    verify: '结果核实中', blocked: '已暂停，待检查', used: '已使用一次', verified: '已核实',
+    unknown: '上次重置结果正在核实，可在当前账号查看重置记录。',
     accepted: '已提交一次重置，正在核实结果。',
-    quotaUnavailable: '次数或到期时间暂不可用，系统会在执行前重新检查。',
-    permission: '无法读取或修改此账号的自动使用设置，请联系管理员确认权限。',
+    quotaUnavailable: '查看或刷新账号额度后可更新次数与到期时间。',
+    permission: '请联系管理员开通此账号的设置权限，然后刷新状态。',
     conflict: '设置已被其他操作更新。请刷新状态后确认。',
     unavailable: '暂时无法读取自动使用设置，请联系管理员检查插件。',
     failure: '暂时无法读取设置，请刷新状态重试。',
-    saveUnknown: '尚未确认设置是否保存成功。请刷新状态后确认，再继续修改。',
+    saveUnknown: '保存结果待确认。刷新状态查看最新设置。',
   },
   en: {
     title: 'Automatically use manual reset credits', toggle: 'Automatically use a manual reset credit in the last 10 minutes before expiry',
     help: 'Checks this account’s available credits and expiry, then uses one credit in the last 10 minutes before it expires. Turning this off stops future automatic resets; submitted resets will still be checked.',
-    loading: 'Loading automatic reset settings…', saving: 'Saving…', readonly: 'You can only view automatic reset settings for this account.',
+    loading: 'Loading automatic reset settings…', saving: 'Saving…', readonly: 'You can view these settings. Contact an administrator to make changes.',
     enabled: 'Automatic use enabled', disabled: 'Automatic use disabled', count: 'Available credits', expiry: 'Next expiry', result: 'Latest result',
     refresh: 'Refresh status', refreshNeeded: 'Refresh needed', none: 'No available credits', waiting: 'Waiting for automatic check',
-    verify: 'Result needs verification', blocked: 'Paused; review required', used: 'One credit used', verified: 'Verified',
-    unknown: 'The last reset result is unconfirmed and is still being checked. Avoid repeating the reset.',
+    verify: 'Verifying result', blocked: 'Paused; review required', used: 'One credit used', verified: 'Verified',
+    unknown: 'The last reset result is being checked. View reset history in this account for updates.',
     accepted: 'One reset was submitted; its result is being checked.',
-    quotaUnavailable: 'Credits or expiry are unavailable. They will be checked again before a reset.',
-    permission: 'Cannot read or change automatic reset settings for this account. Ask an administrator to check your permissions.',
+    quotaUnavailable: 'View or refresh account quota to update credits and expiry.',
+    permission: 'Ask an administrator for access to these account settings, then refresh the status.',
     conflict: 'These settings changed elsewhere. Refresh the status and review them.',
     unavailable: 'Automatic reset settings are unavailable. Ask an administrator to check the plugin.',
     failure: 'Could not load settings. Refresh the status to retry.',
-    saveUnknown: 'Could not confirm whether your settings were saved. Refresh the status before making another change.',
+    saveUnknown: 'Save result unconfirmed. Refresh the status to see the latest settings.',
   },
 };
 const copyFor = locale => copy[locale?.startsWith('zh') ? 'zh' : 'en'];
@@ -100,7 +100,7 @@ export function activateOperatorUi({ React, Fluent, defineOperatorUiPackage }) {
       alive.current = true;
       generation.current += 1;
       setLoading(true); setData(null); setError('');
-      const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(90_000)]);
+      const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(10_000)]);
       api.requestApi({ path: base, signal }).then(value => {
         const checked = validateEnvelope(value, account.id, tenant);
         if (!controller.signal.aborted) setData(checked);
@@ -124,7 +124,7 @@ export function activateOperatorUi({ React, Fluent, defineOperatorUiPackage }) {
     const fresh = quota && Number.isFinite(quota.stale_after) && quota.stale_after > currentTime;
     const expiry = fresh && summary.reliable ? summary.expiry : null;
     const date = value => Number.isFinite(value) ? new Date(value).toLocaleString(locale || 'zh-CN') : c.refreshNeeded;
-    const outcome = uncertain ? c.verify
+    const outcome = needsVerification ? c.verify
       : blocked ? c.blocked
         : result === 'accepted' ? c.used
           : operation?.settled_at ? c.verified : c.waiting;
