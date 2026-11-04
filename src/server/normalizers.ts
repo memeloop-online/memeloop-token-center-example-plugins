@@ -58,9 +58,9 @@ function finiteNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-function nonNegativeInteger(value: unknown): number {
+function nonNegativeInteger(value: unknown): number | null {
   const number = finiteNumber(value);
-  return number === null ? 0 : Math.max(0, Math.min(1_000_000_000, Math.floor(number)));
+  return number === null || number < 0 ? null : Math.min(1_000_000_000, Math.floor(number));
 }
 
 function fraction(value: unknown): number | null {
@@ -99,7 +99,7 @@ export function normalizeCodexRadar(payload: unknown): NormalizedCodexRadar {
       iq,
       softwareIq: point ? finiteNumber(point.software_iq) : null,
       visualIq: point ? finiteNumber(point.visual_iq) : null,
-      samples: point ? nonNegativeInteger(point.samples) : 0,
+      samples: point ? nonNegativeInteger(point.samples) : null,
     });
   }
   if (pointValues.length > 0 && rows.length === 0) throw new InvalidPayloadError();
@@ -139,7 +139,7 @@ export function normalizeDeepSwe(payload: unknown): NormalizedDeepSwe {
       averageCostUsd: cost !== null && cost >= 0 && cost <= 1_000_000 ? cost : null,
       outputTokens: outputTokens !== null && outputTokens >= 0 ? outputTokens : null,
       agentSteps: agentSteps !== null && agentSteps >= 0 ? agentSteps : null,
-      samples: row ? nonNegativeInteger(row.n_attempted) : 0,
+      samples: row ? nonNegativeInteger(row.n_attempted) : null,
     });
   }
   if (rowValues.length > 0 && rows.length === 0) throw new InvalidPayloadError();

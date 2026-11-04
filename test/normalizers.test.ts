@@ -64,6 +64,7 @@ describe('public source normalizers', () => {
     ] });
     expect(result.rows).toHaveLength(1);
     expect(result.rows[0]?.model).toBe('<img>');
+    expect(normalizeCodexRadar({ comprehensive_points: [{ model: 'm', effort: 'high', iq: 100 }] }).rows[0]?.samples).toBeNull();
   });
 
   it('accepts explicit empty source collections', () => {

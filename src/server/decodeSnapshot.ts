@@ -77,7 +77,7 @@ function codexRadarRow(value: unknown): CodexRadarRow | null {
     || !boundedNumber(row.iq, 0, 200)
     || !nullableNumber(row.softwareIq, -1000, 1000)
     || !nullableNumber(row.visualIq, -1000, 1000)
-    || !number(row.samples) || !Number.isInteger(row.samples) || !boundedNumber(row.samples, 0, 1_000_000_000)) return null;
+    || (row.samples !== null && (!number(row.samples) || !Number.isInteger(row.samples) || !boundedNumber(row.samples, 0, 1_000_000_000)))) return null;
   return row as unknown as CodexRadarRow;
 }
 
@@ -89,7 +89,7 @@ function deepSweRow(value: unknown): DeepSweRow | null {
     || !nullableNumber(row.averageCostUsd, 0, 1_000_000)
     || !nullableNumber(row.outputTokens)
     || !nullableNumber(row.agentSteps)
-    || !number(row.samples) || !Number.isInteger(row.samples) || !boundedNumber(row.samples, 0, 1_000_000_000)) return null;
+    || (row.samples !== null && (!number(row.samples) || !Number.isInteger(row.samples) || !boundedNumber(row.samples, 0, 1_000_000_000)))) return null;
   return row as unknown as DeepSweRow;
 }
 

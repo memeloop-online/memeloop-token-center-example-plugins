@@ -30,7 +30,7 @@ fn text(value: &Value) -> String {
 fn num(value: &Value) -> Value {
     value.as_f64().filter(|v| v.is_finite()).map_or(Value::Null, |v| json!(v))
 }
-fn samples(value: &Value) -> u64 { value.as_f64().unwrap_or(0.0).clamp(0.0, 1e9).floor() as u64 }
+fn samples(value: &Value) -> Value { value.as_f64().filter(|v| v.is_finite() && *v >= 0.0).map_or(Value::Null, |v| json!(v.min(1e9).floor() as u64)) }
 fn fraction(value: &Value) -> Option<f64> {
     let v = value.as_f64()?;
     let v = if v > 1.0 { v / 100.0 } else { v };
