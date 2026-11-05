@@ -1,0 +1,10 @@
+[
+  {"hostError":"plugin HTTP destination is unavailable or unsafe","code":"network_destination"},
+  {"hostError":"plugin HTTP request failed","code":"network_request"},
+  {"hostError":"plugin HTTP response read failed","code":"network_response_read"},
+  {"hostError":"plugin HTTP response exceeds its configured body limit","code":"body_limit"},
+  {"hostError":"plugin execution deadline exceeded","code":"network_deadline"},
+  {"hostError":"unknown transport detail https://fixture-user:fixture-secret@private.invalid/","code":"network"},
+  {"hostError":"plugin HTTP request failed: fixture-secret","code":"network"},
+  {"hostError":"plugin HTTP destination is unavailable or unsafe\nfixture-secret","code":"network"}
+]

@@ -162,14 +162,26 @@ struct HttpEnvelope<'a> {
     #[serde(borrow)]
     body_base64: Option<&'a str>,
 }
+// Only exact, static host errors cross the source boundary as finite codes.
+// Request failures share one code for connection errors and timeouts.
+fn host_failure(error: String) -> &'static str {
+    match error.as_str() {
+        "plugin HTTP destination is unavailable or unsafe" => "network_destination",
+        "plugin HTTP request failed" => "network_request",
+        "plugin HTTP response read failed" => "network_response_read",
+        "plugin HTTP response exceeds its configured body limit" => "body_limit",
+        "plugin execution deadline exceeded" => "network_deadline",
+        _ => "network",
+    }
+}
 fn request(url: &str, robots: bool, attempts: &mut u32) -> Result<(Vec<u8>, Option<String>), String> {
     let headers = json!({"accept":if robots {"text/plain"} else {"application/json"},
-        "user-agent":"mtc-health-intelligence/1.3.0 (public-readonly)"}).to_string();
+        "user-agent":"mtc-health-intelligence/1.3.1 (public-readonly)"}).to_string();
     if robots {
         // Metadata-only preflight avoids downloading HTML app shells as robots text.
         // Unsupported HEAD falls back to the same bounded GET rules below.
         *attempts += 1;
-        let bytes = memeloop::token_center::host::http_request("HEAD",url,&headers,&[]).map_err(|_| "network")?;
+        let bytes = memeloop::token_center::host::http_request("HEAD",url,&headers,&[]).map_err(host_failure)?;
         let envelope: HttpEnvelope = serde_json::from_slice(&bytes).map_err(|_| "invalid_http_envelope")?;
         match envelope.status {
             404 | 410 => return Ok((vec![],None)),
@@ -183,7 +195,7 @@ fn request(url: &str, robots: bool, attempts: &mut u32) -> Result<(Vec<u8>, Opti
         }
     }
     *attempts += 1;
-    let bytes = memeloop::token_center::host::http_request("GET",url,&headers,&[]).map_err(|_| "network")?;
+    let bytes = memeloop::token_center::host::http_request("GET",url,&headers,&[]).map_err(host_failure)?;
     let envelope: HttpEnvelope = serde_json::from_slice(&bytes).map_err(|_| "invalid_http_envelope")?;
     let status = envelope.status;
     if robots && (status == 404 || status == 410) { return Ok((vec![],None)); }
@@ -208,7 +220,8 @@ struct CompactSource {
     error: Option<String>,
     attempts: u32,
 }
-const SOURCE_ERRORS: &[&str] = &["network", "invalid_http_envelope", "http_status", "body_limit",
+const SOURCE_ERRORS: &[&str] = &["network", "network_destination", "network_request",
+    "network_response_read", "network_deadline", "invalid_http_envelope", "http_status", "body_limit",
     "content_type", "robots_unavailable", "robots_denied", "missing_source_date", "invalid_json", "invalid_payload"];
 // Rebuild only the bounded canonical rows through the same normalizers. Equality
 // rejects extra fields, altered keys, out-of-range numbers and unsorted rows.

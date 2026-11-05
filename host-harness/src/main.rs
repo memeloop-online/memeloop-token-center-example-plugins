@@ -11,7 +11,7 @@ const TIMEOUT: Duration = Duration::from_millis(30000);
 const EPOCH_TICK: Duration = Duration::from_millis(10);
 struct State {
     mode: &'static str, calls: usize, data_calls: usize, robots_gets: usize, robots: &'static str,
-    limits: StoreLimits, deadline: Instant,
+    limits: StoreLimits, deadline: Instant, host_failure: Option<(String, bool)>,
 }
 impl memeloop::token_center::host::Host for State {
     fn log(&mut self, _: String, _: String) {}
@@ -24,7 +24,7 @@ impl memeloop::token_center::host::Host for State {
         assert!(body.is_empty());
         let headers: Value = serde_json::from_str(&headers).unwrap();
         assert_eq!(headers.as_object().unwrap().len(), 2);
-        assert_eq!(headers["user-agent"], "mtc-health-intelligence/1.3.0 (public-readonly)");
+        assert_eq!(headers["user-agent"], "mtc-health-intelligence/1.3.1 (public-readonly)");
         let config: Value = serde_json::from_str(include_str!("../../component/sources.json")).unwrap();
         let source = config["sources"].as_array().unwrap().iter()
             .find(|s| s["endpoint"] == url || s["robotsUrl"] == url).expect("exact approved URL");
@@ -33,6 +33,11 @@ impl memeloop::token_center::host::Host for State {
         assert!(robots || method == "GET", "HEAD is only for exact robots endpoints");
         if robots && method == "GET" { self.robots_gets += 1; }
         if !robots { self.data_calls += 1; }
+        if source["source"] == "aixhan" && let Some((error, fail_head)) = &self.host_failure {
+            if (*fail_head && robots && method == "HEAD") || (!*fail_head && !robots) {
+                return Err(error.clone());
+            }
+        }
         if robots && method == "HEAD" && self.mode == "head_network" { return Err("private transport exception".into()); }
         if !robots && self.mode == "network" { return Err("private transport exception".into()); }
         let mut bytes = if robots { if self.mode == "robots_denied_one" && source["source"] == "codexradar" {b"User-agent: *\nDisallow: /\n".to_vec()} else {self.robots.as_bytes().to_vec()} }
@@ -51,7 +56,7 @@ impl memeloop::token_center::host::Host for State {
         if !robots && matches!(self.mode, "public_sizes" | "near_cap") {
             bytes = public_size_fixture(source["source"].as_str().unwrap(), bytes, self.mode == "near_cap");
         }
-        if !robots && self.mode == "body_cap" && source["source"] == "codexradar" { return Err("response body limit".into()); }
+        if !robots && self.mode == "body_cap" && source["source"] == "codexradar" { return Err("plugin HTTP response exceeds its configured body limit".into()); }
         if !robots && self.mode == "best_after_24" && source["source"] == "codexradar" {
             let mut value: Value = serde_json::from_slice(&bytes).unwrap();
             let mut row = value["comprehensive_points"][0].clone();
@@ -113,7 +118,7 @@ fn execution(engine: &Engine, component: &Component, linker: &Linker<State>, mod
     -> wasmtime::Result<(Store<State>, ServiceDataPlugin)> {
     let limits = StoreLimitsBuilder::new().memory_size(MEMORY).table_elements(100_000)
         .instances(8).tables(2).memories(2).build();
-    let mut store = Store::new(engine, State { mode, calls: 0, data_calls: 0, robots_gets: 0, robots, limits, deadline: Instant::now() + TIMEOUT });
+    let mut store = Store::new(engine, State { mode, calls: 0, data_calls: 0, robots_gets: 0, robots, limits, deadline: Instant::now() + TIMEOUT, host_failure: None });
     store.limiter(|s| &mut s.limits);
     store.set_fuel(FUEL)?;
     store.set_epoch_deadline(TIMEOUT.as_millis().div_ceil(EPOCH_TICK.as_millis()) as u64);
@@ -164,7 +169,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if i == failed {
                     assert_eq!(source["fetchedAt"], ""); assert!(source["sourceUpdatedAt"].is_null());
                     assert!(source["rows"].as_array().unwrap().is_empty());
-                    assert_eq!(source["error"], if mode == "robots_denied_one" {"robots_denied"} else if mode == "body_cap" {"network"} else if mode == "partial_json" {"invalid_json"} else if mode == "partial_shape" {"invalid_payload"} else if mode == "partial_date" {"missing_source_date"} else {"http_status"});
+                    assert_eq!(source["error"], if mode == "robots_denied_one" {"robots_denied"} else if mode == "body_cap" {"body_limit"} else if mode == "partial_json" {"invalid_json"} else if mode == "partial_shape" {"invalid_payload"} else if mode == "partial_date" {"missing_source_date"} else {"http_status"});
                 } else { assert!(!source["rows"].as_array().unwrap().is_empty()); }
             }
         }
@@ -181,6 +186,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             assert_eq!(row["name"], "earlier-tie");
             assert_eq!(row["status"], "error");
             assert_eq!(row["checkedAt"], "2026-09-07T08:00:00.000Z");
+        }
+    }
+    let host_errors: Vec<Value> = serde_json::from_str(include_str!("../../test/fixtures/host-http-errors.json"))?;
+    for failure in host_errors {
+        for fail_head in [true, false] {
+            let (mut store, bindings) = execution(&engine, &component, &linker, "fixture", allow)?;
+            let host_error = failure["hostError"].as_str().unwrap();
+            store.data_mut().host_failure = Some((host_error.to_owned(), fail_head));
+            let guest = bindings.memeloop_token_center_service_data_v1();
+            let collected = guest.call_collect(&mut store, "health-three-source-v1", input)?.expect("one host failure stays partial");
+            assert!(!collected.contains(host_error) && !collected.contains("fixture-secret"), "raw host errors must not escape");
+            let normalized = guest.call_normalize(&mut store, "health-snapshot-v1", input, &collected)?.expect("finite error survives compact validation");
+            assert!(!normalized.contains(host_error) && !normalized.contains("fixture-secret"));
+            let value: Value = serde_json::from_str(&normalized)?;
+            assert_eq!(value["sources"][0], snapshots[0]["sources"][0]);
+            assert_eq!(value["sources"][1], snapshots[0]["sources"][1]);
+            assert_eq!(value["sources"][2]["status"], "error");
+            assert_eq!(value["sources"][2]["error"], failure["code"]);
+            assert_eq!(value["sources"][2]["rows"], json!([]));
+            assert_eq!(value["sources"][2]["fetchedAt"], "");
+            assert!(value["sources"][2]["sourceUpdatedAt"].is_null());
+            assert_eq!(store.data().data_calls, if fail_head {2} else {3});
         }
     }
     for robots in ["User-agent: *\n\n# comment\nDisallow: /\n",
