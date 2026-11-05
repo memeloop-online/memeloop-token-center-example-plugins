@@ -6,3 +6,5 @@ export * from './publishedSnapshot.js';
 export * from './security.js';
 export * from './sources.js';
 export * from './runtimeContract.js';
+export * from './concurrencyAdvice.js';
+export * from './concurrencyService.js';
