@@ -154,6 +154,13 @@ describe('signed operator UI module', () => {
     const option = module.comparisonOption({ rows: [{ model: '<img>', effort: 'high', passRate: 0.741 }, { model: 'missing', passRate: null }] }, 'passRate', 'Pass rate', true);
     expect(option.series[0].data).toEqual([74.1]);
     expect(option.tooltip.renderMode).toBe('richText');
+    expect(option.xAxis.splitNumber).toBe(2);
+    expect(option.xAxis.axisLabel.hideOverlap).toBe(true);
+    const cost = module.comparisonOption({ rows: [{ model: 'm', averageCostUsd: 4.429117203539823 }] }, 'averageCostUsd', 'USD');
+    expect(cost.series[0].data[0]).toBe(4.429117203539823);
+    expect(cost.series[0].label.formatter({ value: 4.429117203539823 })).toBe('4.43');
+    const latency = module.comparisonOption({ rows: [] }, 'latencyMs', 'ms');
+    expect(latency.xAxis.axisLabel.formatter(2000)).toBe('2k');
     const history = module.historyOption({ sample0At: '2026-11-04T20:29:00Z', sample0LatencyMs: null,
       sample1At: '2026-11-04T20:24:00Z', sample1LatencyMs: 1234 }, 'Response start');
     expect(history.series[0].data).toEqual([[Date.parse('2026-11-04T20:24:00Z'), 1234], [Date.parse('2026-11-04T20:29:00Z'), null]]);

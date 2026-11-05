@@ -159,14 +159,19 @@ export function comparisonOption(source, field, title, percent = false) {
     tooltip: { trigger: 'axis', renderMode: 'richText', confine: true },
     grid: { left: 8, right: 38, top: 28, bottom: 12, containLabel: true },
     xAxis: { type: 'value', name: percent ? '%' : field === 'averageCostUsd' ? 'USD' : field.endsWith('Ms') ? 'ms' : 'IQ', nameLocation: 'middle', nameGap: 18,
-      position: 'top', ...(percent ? { max: 100 } : {}), axisLabel: { formatter: percent ? '{value}%' : '{value}' } },
+      position: 'top', splitNumber: 2, ...(percent ? { max: 100 } : {}), axisLabel: {
+        hideOverlap: true, formatter: value => percent ? `${value}%`
+          : field.endsWith('Ms') && Math.abs(value) >= 1000 ? `${Math.round(value / 100) / 10}k` : String(value),
+      } },
     yAxis: { type: 'category', inverse: true, data: rows.map(label),
       axisLabel: { width: 105, overflow: 'truncate', fontSize: 11 } },
     series: [{ type: 'bar', name: title, barMaxWidth: 18,
       data: rows.map(row => field === 'latencyMs' ? { value: row[field],
         itemStyle: { color: ({ operational: '#27845e', degraded: '#b77a19', error: '#c34e4e', unknown: '#7b8593' })[row.status] || '#7b8593' } }
-        : percent ? Math.round(row[field] * 1000) / 10 : Math.round(row[field] * 100) / 100),
-      label: { show: true, position: 'right', fontSize: 10, formatter: percent ? '{c}%' : '{c}' } }],
+        : percent ? row[field] * 100 : row[field]),
+      label: { show: true, position: 'right', fontSize: 10,
+        formatter: item => percent ? `${Math.round(item.value * 10) / 10}%`
+          : String(Math.round(item.value * 100) / 100) } }],
   };
 }
 
