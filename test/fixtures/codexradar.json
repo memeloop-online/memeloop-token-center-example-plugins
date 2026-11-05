@@ -1,7 +1,10 @@
 {
   "schema": 1,
   "generated_at": "2026-09-07T07:41:03+00:00",
-  "source_updated_at": "2026-09-07T06:58:38+00:00",
+  "source_updated_at": {
+    "software": "2026-09-07T06:58:38+00:00",
+    "visual": "2026-09-06T23:20:00+00:00"
+  },
   "comprehensive_points": [
     {
       "model": "gpt-6-astra",

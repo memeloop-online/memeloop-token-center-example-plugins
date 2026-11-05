@@ -58,9 +58,9 @@ function finiteNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-function nonNegativeInteger(value: unknown): number {
+function nonNegativeInteger(value: unknown): number | null {
   const number = finiteNumber(value);
-  return number === null ? 0 : Math.max(0, Math.min(1_000_000_000, Math.floor(number)));
+  return number === null || number < 0 ? null : Math.min(1_000_000_000, Math.floor(number));
 }
 
 function fraction(value: unknown): number | null {
@@ -99,13 +99,17 @@ export function normalizeCodexRadar(payload: unknown): NormalizedCodexRadar {
       iq,
       softwareIq: point ? finiteNumber(point.software_iq) : null,
       visualIq: point ? finiteNumber(point.visual_iq) : null,
-      samples: point ? nonNegativeInteger(point.samples) : 0,
+      samples: point ? nonNegativeInteger(point.samples) : null,
     });
   }
   if (pointValues.length > 0 && rows.length === 0) throw new InvalidPayloadError();
   rows.sort((left, right) => right.iq - left.iq || left.key.localeCompare(right.key));
   return {
-    sourceUpdatedAt: isoDate(body.source_updated_at) ?? isoDate(body.generated_at),
+    // The public page accepts a timestamp map as well as a single timestamp.
+    sourceUpdatedAt: record(body.source_updated_at)
+      ? Object.values(record(body.source_updated_at)!).map(isoDate)
+        .filter((value): value is string => value !== null).sort().at(-1) ?? null
+      : isoDate(body.source_updated_at) ?? isoDate(body.generated_at),
     rows: rows.slice(0, MAX_ROWS),
   };
 }
@@ -118,23 +122,28 @@ export function normalizeDeepSwe(payload: unknown): NormalizedDeepSwe {
   for (const value of rowValues) {
     const row = record(value);
     const model = row ? requiredText(row.model) : null;
-    const effort = row ? requiredText(row.reasoning_effort) : null;
+    const effort = row ? requiredText(row.reasoning_effort) ?? 'unspecified' : null;
     const passRate = row ? fraction(row.pass_rate) : null;
     if (!model || !effort || passRate === null) continue;
     const passAt4 = row ? fraction(row.pass_at_4) : null;
     const cost = row ? finiteNumber(row.mean_cost_usd) : null;
     const outputTokens = row ? finiteNumber(row.mean_output_tokens) : null;
     const agentSteps = row ? finiteNumber(row.mean_agent_steps) : null;
+    const harness = row ? requiredText(row.harness) : null;
+    const config = row ? requiredText(row.config) : null;
     rows.push({
-      key: `${model}:${effort}`.slice(0, 180),
+      key: (config ?? [model, effort, harness].filter(Boolean).join(':')).slice(0, 180),
       model,
       effort,
+      harness, config,
+      provider: row ? requiredText(row.provider) : null,
+      costBasis: row ? requiredText(row.cost_basis) : null,
       passRate,
       passAt4,
       averageCostUsd: cost !== null && cost >= 0 && cost <= 1_000_000 ? cost : null,
       outputTokens: outputTokens !== null && outputTokens >= 0 ? outputTokens : null,
       agentSteps: agentSteps !== null && agentSteps >= 0 ? agentSteps : null,
-      samples: row ? nonNegativeInteger(row.n_attempted) : 0,
+      samples: row ? nonNegativeInteger(row.n_attempted) : null,
     });
   }
   if (rowValues.length > 0 && rows.length === 0) throw new InvalidPayloadError();
@@ -172,6 +181,18 @@ export function normalizeAixHan(payload: unknown): NormalizedAixHan {
     const name = requiredText(item.name) ?? requiredText(timeline.name);
     const status = requiredText(item.status);
     if (!name || !status) continue;
+    const history: Record<string, string | number | null> = {};
+    const seen = new Set<string>();
+    for (const observation of timelineItems) {
+      const at = isoDate(observation.checkedAt);
+      if (!at || seen.has(at) || seen.size >= 6) continue;
+      const index = seen.size;
+      seen.add(at);
+      const ms = finiteNumber(observation.latencyMs);
+      history[`sample${index}At`] = at;
+      history[`sample${index}Status`] = aixHanStatus(observation.status);
+      history[`sample${index}LatencyMs`] = ms !== null && ms >= 0 && ms <= 86_400_000 ? ms : null;
+    }
     const checkedAt = isoDate(item.checkedAt);
     const latency = finiteNumber(item.latencyMs);
     const pingLatency = finiteNumber(item.pingLatencyMs);
@@ -185,6 +206,7 @@ export function normalizeAixHan(payload: unknown): NormalizedAixHan {
       pingLatencyMs: pingLatency !== null && pingLatency >= 0 && pingLatency <= 86_400_000 ? pingLatency : null,
       checkedAt,
       message: requiredText(item.message),
+      ...history,
     });
   }
   if (timelines.length > 0 && rows.length === 0) throw new InvalidPayloadError();

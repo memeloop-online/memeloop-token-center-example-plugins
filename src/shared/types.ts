@@ -26,7 +26,7 @@ export interface CodexRadarRow extends SourceRow {
   iq: number;
   softwareIq: number | null;
   visualIq: number | null;
-  samples: number;
+  samples: number | null;
 }
 
 export interface DeepSweRow extends SourceRow {
@@ -38,7 +38,7 @@ export interface DeepSweRow extends SourceRow {
   averageCostUsd: number | null;
   outputTokens: number | null;
   agentSteps: number | null;
-  samples: number;
+  samples: number | null;
 }
 
 export type AixHanStatus = 'operational' | 'degraded' | 'error' | 'unknown';

@@ -24,7 +24,7 @@ impl memeloop::token_center::host::Host for State {
         assert!(body.is_empty());
         let headers: Value = serde_json::from_str(&headers).unwrap();
         assert_eq!(headers.as_object().unwrap().len(), 2);
-        assert_eq!(headers["user-agent"], "mtc-health-intelligence/1.2.1 (public-readonly)");
+        assert_eq!(headers["user-agent"], "mtc-health-intelligence/1.3.0 (public-readonly)");
         let config: Value = serde_json::from_str(include_str!("../../component/sources.json")).unwrap();
         let source = config["sources"].as_array().unwrap().iter()
             .find(|s| s["endpoint"] == url || s["robotsUrl"] == url).expect("exact approved URL");
@@ -177,8 +177,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let source = &snapshot["sources"][2];
             assert_eq!(source["sourceUpdatedAt"], "2026-09-07T08:30:00.000Z");
             let row = source["rows"].as_array().unwrap().iter().find(|r| r["key"] == "mixed-one").unwrap();
-            assert_eq!(row["name"], "newer");
-            assert_eq!(row["status"], "operational");
+            // Equal observation times retain the first item, matching the TS stable sort.
+            assert_eq!(row["name"], "earlier-tie");
+            assert_eq!(row["status"], "error");
             assert_eq!(row["checkedAt"], "2026-09-07T08:00:00.000Z");
         }
     }

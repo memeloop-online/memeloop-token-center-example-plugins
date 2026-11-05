@@ -32,6 +32,16 @@
       "mean_cost_usd": 7.23,
       "mean_output_tokens": 46000,
       "mean_agent_steps": 82
+    },
+    {
+      "model": "kimi-k2-7-code",
+      "reasoning_effort": null,
+      "pass_rate": 0.3053097345132743,
+      "n_attempted": 452,
+      "harness": "mini-swe-agent",
+      "config": "mini_swe_agent_kimi_k2_7_code",
+      "provider": "moonshot",
+      "cost_basis": "Published USD estimate"
     }
   ]
 }
