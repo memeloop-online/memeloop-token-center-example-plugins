@@ -78,6 +78,20 @@ const api={navigate:(...args)=>window.navigations.push(args),discoverApi:async()
  }
  throw new Error('Unexpected path '+req.path);
 }};
+api.requestApiStream=async req=>{
+ const response=await api.requestApi(req);window.streamCancelled=false;
+ const encoder=new TextEncoder();
+ return {body:new ReadableStream({
+  start(c){
+   c.enqueue(encoder.encode('event: response.created\\ndata: {"type":"response.created","response":{"id":"response-image"}}\\n\\n'));
+   if(mode==='image-pending')return;
+   for(let index=0;index<response.output.length;index++){
+    c.enqueue(encoder.encode('data: '+JSON.stringify({type:'response.output_item.done',output_index:index,item:response.output[index]})+'\\n\\n'));
+   }
+   c.enqueue(encoder.encode('data: '+JSON.stringify({type:'response.completed',response})+'\\n\\n'));c.close();
+  },cancel(){window.streamCancelled=true;}
+ })};
+};
 const view=createRoot(document.getElementById('root'));window.unmount=()=>view.unmount();
 const render=(tenantExternalId='tenant-a')=>view.render(React.createElement(Fluent.FluentProvider,{theme:Fluent.webLightTheme},React.createElement(pkg.components.workspace,{api,tenantExternalId,locale:'en',context:{}}),React.createElement(pkg.components['open-model'],{api,context:{modelRoute:mode==='anthropic'?anthropicRoute:route},locale:'en'})));window.changeTenant=()=>render('tenant-b');render();
 `;
@@ -217,6 +231,7 @@ test('actual plugin mounts, sends, reviews, stops and navigates in Chromium',{ti
   assert.equal(await image.getAttribute('data-testid'),'message-image-attachment');assert.match(await image.getAttribute('src'),/^blob:/);
   await image.evaluate(el=>el.decode());assert.equal(await image.evaluate(el=>el.complete&&el.naturalWidth>0),true);
   const imageRequest=await page.evaluate(()=>window.requests.find(r=>r.path==='/internal/v1/inference/responses'));
+  assert.equal(imageRequest.body.request.stream,true);assert.equal(imageRequest.body.request.store,false);
   assert.deepEqual(imageRequest.body.request.tools,[{type:'image_generation',model:'gpt-image-2'}]);
   assert.deepEqual(imageRequest.body.request.tool_choice,{type:'image_generation'});
   assert.ok(imageRequest.body.conversation.id);assert.equal(imageRequest.body.key_id,'key-1');
@@ -252,6 +267,17 @@ test('actual plugin mounts, sends, reviews, stops and navigates in Chromium',{ti
   }
   await page.goto(url+'?mode=partial-image');await choose();await page.getByRole('checkbox',{name:'Generate images',exact:true}).check();await send();
   await page.getByText('An error occurred:',{exact:false}).waitFor();assert.equal(await page.getByRole('img',{name:/^Generated image(?::|$)/}).count(),0);
+
+  for(const action of ['stop','unmount']){
+   await page.goto(url+'?mode=image-pending');await choose();
+   await page.getByRole('checkbox',{name:'Generate images',exact:true}).check();await send();
+   await page.getByRole('button',{name:'Stop',exact:true}).waitFor();
+   await page.waitForFunction(()=>window.requests.some(r=>r.path==='/internal/v1/inference/responses'));
+   if(action==='stop')await page.getByRole('button',{name:'Stop',exact:true}).click();
+   else await page.evaluate(()=>window.unmount());
+   await page.waitForFunction(()=>window.streamCancelled===true);
+   assert.equal(await page.getByRole('img',{name:/^Generated image(?::|$)/}).count(),0);
+  }
 
   for(const approval of ['Cancel','Approve']){
    await page.goto(url+'?mode=mutation');await choose();await send();
