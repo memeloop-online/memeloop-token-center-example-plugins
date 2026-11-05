@@ -1,4 +1,5 @@
 import memeloopAgentToolLoop from './memeloop-runtime/default.mjs';
+import { readResponsesStream, MAX_IMAGE_BASE64, MAX_GENERATED_IMAGES } from './responses-stream.mjs';
 
 const TOOL_DEFINITIONS = [
   { type: 'function', function: { name: 'discover_api', description: 'Discover Token Center API documentation using the current signed-in operator and tenant.', parameters: { type: 'object', properties: { search: { type: 'string', description: 'Filter operation paths and summaries' }, path: { type: 'string', description: 'Exact documented path template to inspect' }, method: { type: 'string' }, offset: { type: 'integer', minimum: 0 }, limit: { type: 'integer', minimum: 1, maximum: 30 } }, additionalProperties: false } } },
@@ -64,7 +65,6 @@ function anthropicMessage(response) {
   return { message: { role: 'assistant', content }, text: text.join('\n'), calls };
 }
 function responseRoot(response) { return response?.response ?? response?.data?.response ?? response?.data ?? response; }
-const MAX_IMAGE_BASE64 = Math.ceil(16 * 1024 * 1024 / 3) * 4;
 function displayImage(item) {
   const encoded = item.result;
   if (item.status != null && item.status !== 'completed' || typeof encoded !== 'string' || !encoded.length || encoded.length > MAX_IMAGE_BASE64 || encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) throw new Error('Invalid completed image result');
@@ -77,7 +77,7 @@ function displayImage(item) {
 }
 function responsesMessage(response) {
   const root = responseRoot(response);
-  // The non-streaming core bridge waits for the provider's terminal response.
+  // Both transports return only the provider's terminal response.
   // A partial image or an incomplete response is never presented as a result.
   if (root?.status !== 'completed' || !Array.isArray(root.output)) throw new Error('Responses inference did not complete');
   const text = [];
@@ -100,7 +100,7 @@ function responsesMessage(response) {
       calls.push({ id: item.call_id, type: 'function', function: { name: item.name, arguments: item.arguments } });
       continuation.push(item);
     } else if (item.type === 'image_generation_call') {
-      if (images.length >= 4) throw new Error('Too many generated images');
+      if (images.length >= MAX_GENERATED_IMAGES) throw new Error('Too many generated images');
       images.push(displayImage(item));
       // Image bytes stay in the page's result memory. The core retains request,
       // response and session records under its existing archive policy, which
@@ -174,7 +174,7 @@ function validateRequest(args, document) {
 
 /**
  * Run a chat turn through the pinned official MemeLoop agent/tool script and core inference API.
- * @param {{api:{requestApi:Function,discoverApi:Function},keyId:string,model:string,messages:Array,signal?:AbortSignal,onEvent?:Function,confirmMutation?:Function,maxIterations?:number,enableTools?:boolean,protocol?:'openai'|'anthropic'|'responses',enableImageGeneration?:boolean,imageModel?:string,conversationId?:string,turnId?:string,parentTurnId?:string}} options
+ * @param {{api:{requestApi:Function,requestApiStream?:Function,discoverApi:Function},keyId:string,model:string,messages:Array,signal?:AbortSignal,onEvent?:Function,confirmMutation?:Function,maxIterations?:number,enableTools?:boolean,protocol?:'openai'|'anthropic'|'responses',enableImageGeneration?:boolean,imageModel?:string,conversationId?:string,turnId?:string,parentTurnId?:string}} options
  * @returns {Promise<{messages:Array,status:string,iterations:number,lastTurnId?:string}>}
  * Events: {type:'status',status,iteration?}, {type:'assistant',message},
  * {type:'tool',name,arguments?,result?,status}. No browser storage is used.
@@ -221,7 +221,7 @@ export async function runAgentLoop({ api, keyId, model, messages, signal, onEven
       const imageTools = enableImageGeneration ? [{ type: 'image_generation', model: imageModel }] : [];
       const responseTools = [...imageTools, ...(enableTools ? TOOL_DEFINITIONS.map(({ function: tool }) => ({ type: 'function', ...tool, strict: false })) : [])];
       const request = useResponses
-        ? { model, instructions: system, input: responsesHistory, include: ['reasoning.encrypted_content'], ...(responseTools.length ? { tools: responseTools } : {}), ...(enableImageGeneration && !enableTools ? { tool_choice: { type: 'image_generation' } } : {}), stream: false, store: false }
+        ? { model, instructions: system, input: responsesHistory, include: ['reasoning.encrypted_content'], ...(responseTools.length ? { tools: responseTools } : {}), ...(enableImageGeneration && !enableTools ? { tool_choice: { type: 'image_generation' } } : {}), stream: enableImageGeneration, store: false }
         : protocol === 'anthropic'
         ? { model, system, max_tokens: 2048, messages: history, ...(enableTools ? { tools: TOOL_DEFINITIONS.map(({ function: tool }) => ({ name: tool.name, description: tool.description, input_schema: tool.parameters })) } : {}), stream: false }
         : { model, messages: [{ role: 'system', content: system }, ...history], ...(enableTools ? { tools: TOOL_DEFINITIONS } : {}), stream: false };
@@ -231,7 +231,17 @@ export async function runAgentLoop({ api, keyId, model, messages, signal, onEven
       // and associates each model/tool round with its existing session archive.
       const conversation = conversationId === undefined ? undefined : { id: conversationId, turn_id: currentTurnId, ...(previousTurnId ? { parent_turn_id: previousTurnId } : {}) };
       lastTurnId = currentTurnId;
-      const response = await cancellable(() => api.requestApi({ path: useResponses ? '/internal/v1/inference/responses' : protocol === 'anthropic' ? '/internal/v1/inference/messages' : '/internal/v1/inference/chat/completions', method: 'POST', signal, body: { key_id: keyId, request, ...(conversation ? { conversation } : {}) } }), signal);
+      const inference = { path: useResponses ? '/internal/v1/inference/responses' : protocol === 'anthropic' ? '/internal/v1/inference/messages' : '/internal/v1/inference/chat/completions', method: 'POST', signal, body: { key_id: keyId, request, ...(conversation ? { conversation } : {}) } };
+      let response;
+      if (useResponses && enableImageGeneration) {
+        if (!api.requestApiStream) throw new Error('Image generation needs a newer Token Center host. Ask an administrator to update it.');
+        // The host owns credentials and scope. Await the native stream directly:
+        // racing it with cancellation could leak a late-returning response body.
+        const stream = await api.requestApiStream(inference);
+        response = await readResponsesStream(stream, signal);
+      } else {
+        response = await cancellable(() => api.requestApi(inference), signal);
+      }
       check(signal);
       let assistant;
       let text;

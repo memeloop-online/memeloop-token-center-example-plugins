@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { runAgentLoop } from './agent-loop.mjs';
+import { readResponsesStream, MAX_IMAGE_BASE64, MAX_GENERATED_IMAGES } from './responses-stream.mjs';
+const encodeEvent = event => `data: ${JSON.stringify(event)}\n\n`;
+const streamOf = text => ({ body: new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(text)); c.close(); } }) });
+const imageApi = api => ({ ...api, requestApiStream: async request => streamOf(encodeEvent({ type: 'response.completed', response: await api.requestApi(request) })) });
 
 const answer = message => ({ choices: [{ message: { role: 'assistant', ...message } }] });
 const call = (id, name, args) => ({ id, type: 'function', function: { name, arguments: JSON.stringify(args) } });
@@ -320,12 +324,15 @@ test('GPT Image 2 uses selected outer model and core Responses endpoint and emit
       return responses([{ type: 'image_generation_call', id: 'image-one', status: 'completed', result: png }]);
     },
   };
-  const result = await runAgentLoop({ ...options(api), model: 'chosen-text-route', enableImageGeneration: true, enableTools: false, onEvent: event => events.push(event) });
+  const result = await runAgentLoop({ ...options(imageApi(api)), conversationId: 'image-session', turnId: 'image-turn', parentTurnId: 'previous-turn', model: 'chosen-text-route', enableImageGeneration: true, enableTools: false, onEvent: event => events.push(event) });
   assert.equal(inference.path, '/internal/v1/inference/responses');
   assert.equal(inference.body.request.model, 'chosen-text-route');
   assert.deepEqual(inference.body.request.tools, [{ type: 'image_generation', model: 'gpt-image-2' }]);
   assert.deepEqual(inference.body.request.tool_choice, { type: 'image_generation' });
   assert.equal(inference.body.request.store, false);
+  assert.equal(inference.body.request.stream, true);
+  assert.equal(inference.body.key_id, 'selected-key-id');
+  assert.deepEqual(inference.body.conversation, { id: 'image-session', turn_id: 'image-turn', parent_turn_id: 'previous-turn' });
   assert.deepEqual(result.messages.at(-1), { role: 'assistant', content: '', images: [{ dataUrl: `data:image/png;base64,${png}`, mimeType: 'image/png' }] });
   assert.equal(events.some(event => event.type === 'assistant' && event.message.images?.length === 1), true);
   assert.equal(events.some(event => event.type === 'tool'), false);
@@ -345,7 +352,7 @@ test('image bytes are kept in display messages and excluded from native product-
       return responses([responseText('Image ready.')]);
     },
   };
-  const result = await runAgentLoop({ ...options(api), enableImageGeneration: true });
+  const result = await runAgentLoop({ ...options(imageApi(api)), enableImageGeneration: true });
   assert.equal(result.messages[1].images[0].mimeType, 'image/png');
   assert.equal(result.messages.at(-1).content, 'Image ready.');
 });
@@ -360,11 +367,11 @@ test('incomplete, partial, non-raster and unsolicited image outputs fail before 
   for (const sample of samples) {
     const events = [];
     const api = { discoverApi: async () => ({ paths: {} }), requestApi: async () => sample };
-    await assert.rejects(runAgentLoop({ ...options(api), enableImageGeneration: true, onEvent: event => events.push(event) }));
+    await assert.rejects(runAgentLoop({ ...options(imageApi(api)), enableImageGeneration: true, onEvent: event => events.push(event) }));
     assert.equal(events.some(event => event.type === 'assistant'), false);
   }
   const api = { discoverApi: async () => ({ paths: {} }), requestApi: async () => responses([{ type: 'image_generation_call', result: png }]) };
-  await assert.rejects(runAgentLoop({ ...options(api), protocol: 'responses' }), /Unexpected image generation/);
+  await assert.rejects(runAgentLoop({ ...options(imageApi(api)), protocol: 'responses' }), /Unexpected image generation/);
 });
 
 test('Responses cancellation reaches the core bridge and stops without displaying late images', async () => {
@@ -378,7 +385,7 @@ test('Responses cancellation reaches the core bridge and stops without displayin
       return responses([{ type: 'image_generation_call', result: png }]);
     },
   };
-  const result = await runAgentLoop({ ...options(api), enableImageGeneration: true, signal: abort.signal, onEvent: event => events.push(event) });
+  const result = await runAgentLoop({ ...options(imageApi(api)), enableImageGeneration: true, signal: abort.signal, onEvent: event => events.push(event) });
   assert.equal(result.status, 'cancelled');
   assert.equal(events.some(event => event.type === 'assistant'), false);
 });
@@ -418,4 +425,79 @@ test('conversation wrapper is supported for Chat and Anthropic and rejects malfo
       await assert.rejects(runAgentLoop({ ...options(api), conversationId }), /Invalid conversation identifier/);
     }
   }
+});
+
+test('SSE parses split UTF-8, CRLF and multiline data and waits for response.completed', async () => {
+  const item = { id: 'image-one', type: 'image_generation_call', status: 'completed', result: png };
+  const terminal = { id: 'response-one', status: 'completed', output: [{ ...item, result: undefined }], usage: { output_tokens: 3 } };
+  const prefix = ': heartbeat\r\n\r\n'+encodeEvent({ type: 'response.output_item.done', output_index: 0, item });
+  let controller;
+  const source = { body: new ReadableStream({ start(c) { controller = c; c.enqueue(new TextEncoder().encode(prefix)); } }) };
+  let finished = false;
+  const pending = readResponsesStream(source).then(value => { finished = true; return value; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(finished, false, 'a complete image item alone does not complete/archive the whole turn');
+  const text = 'data: {"type":"response.completed",\r\ndata: "response":'+JSON.stringify({ ...terminal, note: '橘猫' })+'}\r\n\r\ndata: [DONE]\r\n\r\n';
+  const bytes = new TextEncoder().encode(text);
+  for (let offset = 0; offset < bytes.length; offset += 7) controller.enqueue(bytes.slice(offset, offset + 7));
+  controller.close();
+  const result = await pending;
+  assert.equal(result.output[0].result, png);
+  assert.deepEqual(result.usage, { output_tokens: 3 });
+  assert.equal(result.note, '橘猫');
+});
+
+test('SSE never turns partial images, malformed events or truncated/failed streams into success', async () => {
+  for (const text of [
+    encodeEvent({ type: 'response.image_generation_call.partial_image', partial_image_b64: png }),
+    'data: [DONE]\n\n', 'data: nope\n\n',
+    encodeEvent({ type: 'response.failed' }), encodeEvent({ type: 'response.incomplete' }), encodeEvent({ type: 'error' }),
+    encodeEvent({ type: 'response.completed', response: { status: 'in_progress', output: [] } }),
+  ]) await assert.rejects(readResponsesStream(streamOf(text)));
+});
+
+test('SSE retains only complete matching image items and does not duplicate terminal output', async () => {
+  const item = { id: 'one', type: 'image_generation_call', status: 'completed', result: png };
+  const event = encodeEvent({ type: 'response.output_item.done', output_index: 0, item });
+  const completed = encodeEvent({ type: 'response.completed', response: { status: 'completed', output: [item] } });
+  assert.equal((await readResponsesStream(streamOf(event+event+completed))).output.length, 1);
+  const mismatched = encodeEvent({ type: 'response.completed', response: { status: 'completed', output: [{ ...item, id: 'other', result: undefined }] } });
+  assert.equal((await readResponsesStream(streamOf(event+mismatched))).output[0].result, undefined);
+  const terminalOnly = await readResponsesStream(streamOf(completed));
+  assert.equal(terminalOnly.output[0].result, png);
+});
+
+test('SSE abort cancels a pending native reader and releases its lock', async () => {
+  const abort = new AbortController();
+  let cancelled = false;
+  const body = new ReadableStream({ cancel() { cancelled = true; } });
+  const pending = readResponsesStream({ body }, abort.signal);
+  abort.abort();
+  await assert.rejects(pending, error => error.name === 'AbortError');
+  assert.equal(cancelled, true);
+  assert.equal(body.locked, false);
+});
+
+test('SSE rejects an unbounded unterminated event using the existing image capacity', async () => {
+  const chunk = new TextEncoder().encode('x'.repeat(1024 * 1024));
+  let remaining = Math.ceil((MAX_IMAGE_BASE64 * MAX_GENERATED_IMAGES + 120000) / chunk.length) + 1;
+  let cancelled = false;
+  const body = new ReadableStream({ pull(c) { if (remaining-- > 0) c.enqueue(chunk); else c.close(); }, cancel() { cancelled = true; } });
+  await assert.rejects(readResponsesStream({ body }), /image result budget/);
+  assert.equal(cancelled, true);
+});
+
+test('image generation reports an older host instead of falling back to buffered JSON', async () => {
+  let sent = false;
+  const api = { discoverApi: async () => ({}), requestApi: async () => { sent = true; return {}; } };
+  await assert.rejects(runAgentLoop({ ...options(api), enableImageGeneration: true }), /newer Token Center host/);
+  assert.equal(sent, false);
+});
+
+
+test('SSE accepts bare CR and a CRLF split between reads', async () => {
+  const terminal = encodeEvent({ type: 'response.completed', response: { status: 'completed', output: [] } }).replaceAll('\n', '\r');
+  const values = [terminal, '\n'];
+  const body = new ReadableStream({ pull(c) { if (values.length) c.enqueue(new TextEncoder().encode(values.shift())); else c.close(); } });
+  assert.equal((await readResponsesStream({ body })).status, 'completed');
 });

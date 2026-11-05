@@ -103,7 +103,7 @@ for (const [key, entry] of [...bundledPackages.entries()].sort(([a], [b]) => a.l
 writeFileSync(join(packageRoot, 'THIRD_PARTY_NOTICES.md'), readFileSync(join(packageRoot, 'THIRD_PARTY_NOTICES.md'), 'utf8') + licenseAppendix);
 const manifest = JSON.parse(readFileSync(join(packageRoot, 'plugin.json'), 'utf8'));
 assert.equal(manifest.id, 'mtc-text-playground');
-assert.equal(manifest.version, '1.1.1');
+assert.equal(manifest.version, '1.1.2');
 assert.equal(manifest.wasm, null);
 assert.deepEqual(manifest.contributions.operator_ui.map(item => item.component_id), ['workspace', 'open-model']);
 run(process.execPath, ['--check', join(packageRoot, 'ui/playground.mjs')]);

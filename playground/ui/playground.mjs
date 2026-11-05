@@ -483,7 +483,7 @@ Fluent=FluentHost;
 return defineOperatorUiPackage({
 apiVersion:'operator-ui-package-v1',
 pluginId:'mtc-text-playground',
-compatiblePluginVersions:['1.0.0','1.1.0','1.1.1'],
+compatiblePluginVersions:['1.0.0','1.1.0','1.1.1','1.1.2'],
 components:{workspace:Workspace,'open-model':OpenModel}
 });
 }
