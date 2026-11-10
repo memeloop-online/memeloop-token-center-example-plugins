@@ -176,10 +176,10 @@ describe('signed operator UI module', () => {
     expect(tooltip.replaceAll('\n', '')).toContain(row.model);
     expect(tooltip.replaceAll('\n', '')).toContain(row.config);
     expect(tooltip).toContain('74.12%');
-    expect(tooltip.split('\n').every(line => Array.from(line).length <= 18)).toBe(true);
+    expect(tooltip.split('\n').every((line: string) => Array.from(line).length <= 18)).toBe(true);
     expect(module.metricTooltip('ms').formatter({ seriesName: 'Latency', value: 0 })).toContain('0 ms');
     expect(module.metricTooltip('USD').formatter({ value: 0.0007 })).toContain('0.0007 USD');
-    const history = module.metricTooltip('ms', item => item.seriesName, true).formatter([
+    const history = module.metricTooltip('ms', (item: { seriesName: string }) => item.seriesName, true).formatter([
       { seriesName: 'first', value: [0, 1234.6] }, { seriesName: 'missing', value: [0, null] },
     ]);
     expect(history).toContain('1,235 ms');
