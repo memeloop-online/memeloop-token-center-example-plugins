@@ -1,5 +1,5 @@
 const PLUGIN_ID = 'mtc-health-intelligence';
-const PLUGIN_VERSIONS = ['1.1.0', '1.2.0', '1.2.1', '1.3.0', '1.3.1'];
+const PLUGIN_VERSIONS = ['1.1.0', '1.2.0', '1.2.1', '1.3.0', '1.3.1', '1.3.2'];
 const COMPONENT_ID = 'health-intelligence';
 const ENDPOINT_ID = 'health-intelligence';
 const TICK_INTERVAL_MS = 30 * 1000;
@@ -151,13 +151,45 @@ export function isRuntimeStale(source, now) {
     || Date.parse(source?.sourceUpdatedAt) > now + MAX_CLOCK_SKEW_MS;
 }
 
-// Canvas tooltips avoid interpreting upstream labels as HTML.
+// Canvas tooltips keep source text readable within narrow chart containers.
+function tooltipLines(value) {
+  return String(value ?? '').split('\n').flatMap(line => {
+    const characters = Array.from(line);
+    return characters.length ? Array.from({ length: Math.ceil(characters.length / 18) },
+      (_, index) => characters.slice(index * 18, (index + 1) * 18).join('')) : [''];
+  // A zero-width separator keeps literal braces out of ECharts rich-text syntax.
+  }).join('\n').replaceAll('{', '{\u200b');
+}
+
+export function metricTooltip(unit, labelFor, timeSeries = false) {
+  return { trigger: 'axis', renderMode: 'richText', confine: true,
+    textStyle: { fontSize: 12, lineHeight: 17 },
+    formatter: parameters => {
+      const items = Array.isArray(parameters) ? parameters : [parameters];
+      return items.filter(Boolean).map(item => {
+        const raw = Array.isArray(item.value) ? item.value[1] : item.value;
+        const value = typeof raw === 'number' && Number.isFinite(raw)
+          ? `${new Intl.NumberFormat('en', { maximumFractionDigits: unit === 'ms' || unit === 'Providers' || unit === '提供方数' ? 0 : unit === 'USD' ? 4 : 2 }).format(raw)}${unit === '%' ? '%' : ` ${unit}`}`
+          : '—';
+        const at = timeSeries && Array.isArray(item.value) && Number.isFinite(item.value[0])
+          ? new Date(item.value[0]).toISOString() : '';
+        return [tooltipLines(labelFor?.(item) ?? item.seriesName ?? item.name), at && tooltipLines(at),
+          tooltipLines(value)].filter(Boolean).join('\n');
+      }).join('\n\n');
+    },
+  };
+}
+
 export function comparisonOption(source, field, title, percent = false) {
   const rows = (source.rows || []).filter(row => typeof row?.[field] === 'number' && Number.isFinite(row[field])).slice(0, 12);
   const label = row => [row.name || row.model || row.key, row.effort, row.harness].filter(Boolean).join(' · ');
   return {
     animation: false, aria: { enabled: true },
-    tooltip: { trigger: 'axis', renderMode: 'richText', confine: true },
+    tooltip: metricTooltip(percent ? '%' : field === 'averageCostUsd' ? 'USD' : field.endsWith('Ms') ? 'ms' : 'IQ',
+      item => {
+        const row = rows[item.dataIndex];
+        return row ? [row.name || row.model || row.key, row.effort, row.harness, row.config].filter(Boolean).join('\n') : item.name;
+      }),
     grid: { left: 8, right: 38, top: 28, bottom: 12, containLabel: true },
     xAxis: { type: 'value', name: percent ? '%' : field === 'averageCostUsd' ? 'USD' : field.endsWith('Ms') ? 'ms' : 'IQ', nameLocation: 'middle', nameGap: 18,
       position: 'top', splitNumber: 2, ...(percent ? { max: 100 } : {}), axisLabel: {
@@ -185,7 +217,7 @@ export function historyOption(row, title) {
     data.push([at, typeof value === 'number' && Number.isFinite(value) ? value : null]);
   }
   return { animation: false, aria: { enabled: true },
-    tooltip: { trigger: 'axis', renderMode: 'richText', confine: true },
+    tooltip: metricTooltip('ms', () => [row?.name || row?.model, title].filter(Boolean).join('\n'), true),
     grid: { left: 8, right: 18, top: 32, bottom: 12, containLabel: true },
     xAxis: { type: 'time', axisLabel: { hideOverlap: true } },
     yAxis: { type: 'value', name: 'ms', min: 0 },
@@ -432,7 +464,7 @@ export function activateOperatorUi(host) {
           h(Badge, { key: status, appearance: 'tint', color: ({ operational: 'success', degraded: 'warning', error: 'danger', unknown: 'subtle' })[status] },
             `${text(STRINGS[status])} ${rows.filter(row => (['operational','degraded','error'].includes(row.status) ? row.status : 'unknown') === status).length}`))) : null,
         field === 'status' ? chart({ animation: false, aria: { enabled: true },
-          tooltip: { trigger: 'axis', renderMode: 'richText', confine: true },
+          tooltip: metricTooltip(lang === 'zh' ? '提供方数' : 'Providers', item => item.name),
           grid: { left: 8, right: 20, top: 20, bottom: 16, containLabel: true },
           xAxis: { type: 'category', data: ['operational', 'degraded', 'error', 'unknown'].map(value => text(STRINGS[value])) },
           yAxis: { type: 'value', minInterval: 1, name: lang === 'zh' ? '提供方数' : 'Providers' },

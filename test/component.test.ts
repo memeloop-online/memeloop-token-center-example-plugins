@@ -167,6 +167,30 @@ describe('signed operator UI module', () => {
     expect(history.series[0].connectNulls).toBe(false);
   });
 
+  it('wraps complete source labels and formats tooltip values without changing chart data', async () => {
+    const module = await import(url);
+    const row = { model: 'a-model-with-a-long-complete-name', effort: 'xhigh',
+      harness: 'mini-swe-agent', config: 'long-configuration-without-spaces', passRate: 0.7411504424778761 };
+    const chart = module.comparisonOption({ rows: [row] }, 'passRate', 'Pass rate', true);
+    const tooltip = chart.tooltip.formatter([{ dataIndex: 0, value: chart.series[0].data[0] }]);
+    expect(tooltip.replaceAll('\n', '')).toContain(row.model);
+    expect(tooltip.replaceAll('\n', '')).toContain(row.config);
+    expect(tooltip).toContain('74.12%');
+    expect(tooltip.split('\n').every((line: string) => Array.from(line).length <= 18)).toBe(true);
+    expect(module.metricTooltip('ms').formatter({ seriesName: 'Latency', value: 0 })).toContain('0 ms');
+    expect(module.metricTooltip('USD').formatter({ value: 0.0007 })).toContain('0.0007 USD');
+    const history = module.metricTooltip('ms', (item: { seriesName: string }) => item.seriesName, true).formatter([
+      { seriesName: 'first', value: [0, 1234.6] }, { seriesName: 'missing', value: [0, null] },
+    ]);
+    expect(history).toContain('1,235 ms');
+    expect(history).toContain('missing');
+    expect(history).toContain('—');
+    expect(history.replaceAll('\n', '')).toContain('1970-01-01T00:00:00.000Z');
+    const literal = module.metricTooltip('IQ').formatter({ seriesName: '{style|text}', value: 100 });
+    expect(literal).not.toMatch(/\{([a-zA-Z0-9_]+)\|([^}]*)\}/g);
+    expect(literal.replaceAll('\u200b', '')).toContain('{style|text}');
+  });
+
   it('accepts source HTTPS links and rejects executable or credential-bearing URLs', async () => {
     const module = await import(url);
     const pattern = new RegExp(schema.$defs.source.properties.pageUrl.pattern);

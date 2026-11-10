@@ -176,7 +176,7 @@ fn host_failure(error: String) -> &'static str {
 }
 fn request(url: &str, robots: bool, attempts: &mut u32) -> Result<(Vec<u8>, Option<String>), String> {
     let headers = json!({"accept":if robots {"text/plain"} else {"application/json"},
-        "user-agent":"mtc-health-intelligence/1.3.1 (public-readonly)"}).to_string();
+        "user-agent":"mtc-health-intelligence/1.3.2 (public-readonly)"}).to_string();
     if robots {
         // Metadata-only preflight avoids downloading HTML app shells as robots text.
         // Unsupported HEAD falls back to the same bounded GET rules below.
